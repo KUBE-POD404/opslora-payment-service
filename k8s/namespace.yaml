@@ -1,0 +1,4 @@
+apiVersion: v1
+name: Namespace
+metadata:
+  name: sales-test-ns
