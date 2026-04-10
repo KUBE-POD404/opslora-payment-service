@@ -1,0 +1,62 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: payment-deployment
+  namespace: opslora-test-ns
+  labels:
+    app: payment
+spec:
+  replicas: 2
+  strategy:
+    type: RollingUpdate
+    rollingUpdate:
+      maxUnavailable: 1
+      maxSurge: 1
+  selector:
+    matchLabels:
+      app: payment-microservice
+  template:
+    metadata:
+      labels:
+        app: payment-microservice
+    spec:
+      podAntiAffinity:
+        preferredDuringSchedulingIgnoredDuringExecution:
+        - weight: 100
+          podAffinityTerm:
+            labelSelector:
+              matchLabels:
+                app: payment-microservice
+            topologyKey: topology.kubernetes.io/zone
+      containers:
+        - name: payment-container
+          image: kubectlandchill/sales-payment-service:v1.1.0
+          ports:
+            - containerPort: 3000
+          resources:
+            limits:
+              memory: "512Mi"
+              cpu: "200m"
+            requests:
+              memory: "256Mi"
+              cpu: "100m"
+          livenessProbe:
+            httpGet:
+              path: /app/v1/payment/health
+              port: 3000
+              scheme: HTTP
+            initialDelaySeconds: 5
+            periodSeconds: 5
+          startupProbe:
+            httpGet:
+              path: /app/v1/payment/health
+              port: 3000
+            failureThreshold: 30
+            periodSeconds: 10
+          readnessProbe:
+            httpGet:
+            path: /api/v1/payment/health
+            port: 3000
+            scheme: HTTP
+          initialDelaySeconds: 0
+          periodSeconds: 10
