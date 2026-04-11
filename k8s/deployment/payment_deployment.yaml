@@ -9,6 +9,7 @@ spec:
   replicas: 2
   strategy:
     type: RollingUpdate
+    
     rollingUpdate:
       maxUnavailable: 1
       maxSurge: 1
@@ -42,9 +43,11 @@ spec:
             limits:
               memory: "512Mi"
               cpu: "200m"
+              ephemeral-storage: "500Mi"
             requests:
               memory: "256Mi"
               cpu: "100m"
+              ephemeral-storage: "200Mi"
     
           livenessProbe:
             httpGet:
