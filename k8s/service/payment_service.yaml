@@ -3,11 +3,13 @@ kind: Service
 metadata:
   name: payments-service
   namespace: opslora-test-ns
+  labels:
+    app: payments
 spec:
   type: ClusterIP
   selector:
-    app:payments-service
+    app: payments-service
   ports:
   - port: 3000
     tragetPort: 3000
-    protocol: tcp
+    protocol: TCP
