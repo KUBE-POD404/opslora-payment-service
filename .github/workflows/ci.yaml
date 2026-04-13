@@ -69,6 +69,26 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
+      - name: Debug email secrets
+        run: |
+          [ -z "${{ secrets.NOTIFY_EMAIL_TO }}" ] && echo "NOTIFY_EMAIL_TO is empty" && exit 1 || echo "NOTIFY_EMAIL_TO is set"
+          [ -z "${{ secrets.MAIL_FROM }}" ] && echo "MAIL_FROM is empty" && exit 1 || echo "MAIL_FROM is set"
+          [ -z "${{ secrets.SMTP_USERNAME }}" ] && echo "SMTP_USERNAME is empty" && exit 1 || echo "SMTP_USERNAME is set"
+          [ -z "${{ secrets.SMTP_PASSWORD }}" ] && echo "SMTP_PASSWORD is empty" && exit 1 || echo "SMTP_PASSWORD is set"
+      
+      - name: Test email directly
+        uses: hilarion5/send-mail@v1
+        with:
+          smtp-server: smtp.hostinger.com
+          smtp-port: 587
+          smtp-secure: false
+          username: ${{ secrets.SMTP_USERNAME }}
+          password: ${{ secrets.SMTP_PASSWORD }}
+          from: Payment Service CI Alerts <${{ secrets.MAIL_FROM }}>
+          to: ${{ secrets.NOTIFY_EMAIL_TO }}
+          subject: Test email from GitHub Actions
+          body: This is a direct email test from Payment Pipeline.
+
       - name: Sonar Notification
         if: ${{ needs.sonar-scan.outputs.quality_gate_status == 'FAILED' }}
         uses: ./.github/actions/notification-action
