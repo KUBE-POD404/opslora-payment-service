@@ -80,7 +80,7 @@ jobs:
           smtp_username: ${{ secrets.SMTP_USERNAME }}
           smtp_password: ${{ secrets.SMTP_PASSWORD }}
           mail_from: ${{ secrets.MAIL_FROM }}
-          mail_to: ${{ needs.get-email.outputs.email }}
+          mail_to: ${{ secrets.NOTIFY_EMAIL_TO }}
           slack_webhook: ${{ secrets.SLACK_INCOMING_WEBHOOK }}
           tool: sonar
           workflow_url: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
@@ -98,7 +98,7 @@ jobs:
           smtp_username: ${{ secrets.SMTP_USERNAME }}
           smtp_password: ${{ secrets.SMTP_PASSWORD }}
           mail_from: ${{ secrets.MAIL_FROM }}
-          mail_to: ${{ needs.get-email.outputs.email }}
+          mail_to: ${{ secrets.NOTIFY_EMAIL_TO }}
           slack_webhook: ${{ secrets.SLACK_INCOMING_WEBHOOK }}
           tool: snyk
           workflow_url: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
