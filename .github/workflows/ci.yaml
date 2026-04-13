@@ -67,7 +67,7 @@ jobs:
   #   secrets: inherit
 
   notify:
-    needs: [get-email, sonar-scan, snyk-scan]
+    needs: [get-author, sonar-scan, snyk-scan]
     if: >
       always() &&
       (
