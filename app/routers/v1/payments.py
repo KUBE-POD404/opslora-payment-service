@@ -3,6 +3,7 @@ from sqlalchemy.orm import Session
 
 from app.database import get_db
 from app.schemas import PaymentCreate, PaymentResponse
+from typing import Annotated
 
 from app.services.payment_service import (
     create_payment,
@@ -14,6 +15,8 @@ from app.dependencies.permissions import require_permission
 
 router = APIRouter(prefix="/payments", tags=["Payments"])
 
+DBSession = Annotated[Session, Depends(get_db)]
+
 @router.get("/health")
 def health():
     return {"status": "ok"}
@@ -23,8 +26,11 @@ def health():
 def create_payment_api(
     payload: PaymentCreate,
     request: Request,
-    db: Session = Depends(get_db),
-    current_user = Depends(require_permission("payment.create"))
+    db: DBSession,
+    current_user: Annotated[
+        any,
+        Depends(require_permission("payment.create"))
+    ]
 ):
 
     auth_header = request.headers.get("Authorization")
@@ -44,8 +50,11 @@ def create_payment_api(
 def get_payments_for_invoice_api(
     invoice_id: int,
     request: Request,
-    db: Session = Depends(get_db),
-    current_user = Depends(require_permission("payment.read"))
+    db: DBSession,
+    current_user: Annotated[
+        any,
+        Depends(require_permission("payment.read"))
+    ]
 ):
 
     auth_header = request.headers.get("Authorization")
@@ -62,8 +71,11 @@ def get_payments_for_invoice_api(
 def refund_invoice_api(
     invoice_id: int,
     request: Request,
-    db: Session = Depends(get_db),
-    current_user = Depends(require_permission("payment.refund"))
+    db: DBSession,
+    current_user: Annotated[
+        any,
+        Depends(require_permission("payment.refund"))
+    ]
 ):
 
     auth_header = request.headers.get("Authorization")
