@@ -1,0 +1,73 @@
+name: Release Pipeline
+
+on:
+  release:
+    types: [published]
+
+jobs:
+  promote:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Extract and validate release tag
+        id: version
+        run: |
+          TAG='${{ github.event.release.tag_name }}'
+          REGEX='^v[0-9]+\.[0-9]+\.[0-9]+(-((alpha|beta|rc)\.[0-9]+))?$'
+
+          if [[ ! "$TAG" =~ $REGEX ]]; then
+            echo "Invalid release tag: $TAG"
+            echo "Expected format: vMAJOR.MINOR.PATCH or vMAJOR.MINOR.PATCH-rc.N / -beta.N / -alpha.N"
+            exit 1
+          fi
+
+          echo "version=$TAG" >> "$GITHUB_OUTPUT"
+
+      - name: Login DockerHub
+        uses: docker/login-action@v3
+        with:
+          username: ${{ secrets.DOCKERHUB_USERNAME }}
+          password: ${{ secrets.DOCKERHUB_TOKEN }}
+
+      - name: Checkout code
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Validate tag commit is in main
+        run: |
+          TAG='${{ github.event.release.tag_name }}'
+          COMMIT=$(git rev-list -n 1 "$TAG")
+
+          git fetch origin main
+
+          if git merge-base --is-ancestor "$COMMIT" origin/main; then
+            echo "Tag commit is part of main"
+          else
+            echo "ERROR: Tag $TAG points to commit $COMMIT, which is not in main"
+            exit 1
+          fi
+
+      - name: Resolve tagged commit SHA
+        id: sha
+        run: |
+          TAG='${{ github.event.release.tag_name }}'
+          SHA=$(git rev-list -n 1 "$TAG")
+          SHORT_SHA="${SHA::7}"
+          echo "sha=$SHORT_SHA" >> "$GITHUB_OUTPUT"
+          echo "Resolved release tag $TAG to commit $SHA"
+          echo "Using test image tag $SHORT_SHA"
+
+      - name: Pull image from TEST repo
+        run: |
+          docker pull ${{ secrets.TEST_REPO }}:${{ steps.sha.outputs.sha }}
+
+      - name: Tag for PROD using release tag
+        run: |
+          docker tag \
+            ${{ secrets.TEST_REPO }}:${{ steps.sha.outputs.sha }} \
+            ${{ secrets.PROD_REPO }}:${{ steps.version.outputs.version }}
+
+      - name: Push tagged PROD image
+        run: |
+          docker push ${{ secrets.PROD_REPO }}:${{ steps.version.outputs.version }}

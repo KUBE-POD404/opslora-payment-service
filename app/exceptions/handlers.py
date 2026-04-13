@@ -9,7 +9,7 @@ from app.exceptions.custom_exceptions import AppException
 # -----------------------------
 # Custom Application Exceptions
 # -----------------------------
-async def app_exception_handler(request: Request, exc: AppException):
+def app_exception_handler(exc: AppException):
     return JSONResponse(
         status_code=exc.status_code,
         content={
@@ -21,7 +21,7 @@ async def app_exception_handler(request: Request, exc: AppException):
 # -----------------------------
 # FastAPI HTTP Exceptions
 # -----------------------------
-async def http_exception_handler(request: Request, exc: StarletteHTTPException):
+def http_exception_handler(exc: StarletteHTTPException):
     return JSONResponse(
         status_code=exc.status_code,
         content={
@@ -33,7 +33,7 @@ async def http_exception_handler(request: Request, exc: StarletteHTTPException):
 # -----------------------------
 # Validation Errors
 # -----------------------------
-async def validation_exception_handler(request: Request, exc: RequestValidationError):
+def validation_exception_handler(exc: RequestValidationError):
     return JSONResponse(
         status_code=422,
         content={
@@ -46,7 +46,7 @@ async def validation_exception_handler(request: Request, exc: RequestValidationE
 # -----------------------------
 # Unhandled Errors
 # -----------------------------
-async def generic_exception_handler(request: Request, exc: Exception):
+def generic_exception_handler():
     return JSONResponse(
         status_code=500,
         content={
