@@ -57,7 +57,7 @@ runs:
         smtp-secure: false
         username: ${{ inputs.smtp_username }}
         password: ${{ inputs.smtp_password }}
-        from-email: "Payment Service CI Alerts <${{ inputs.mail_from }}>"
+        from-email: ${{ inputs.mail_from }}
         to-email: ${{ inputs.mail_to }}
         subject: "[CI ALERT] ${{ inputs.pipeline_name }} FAILED"
 
