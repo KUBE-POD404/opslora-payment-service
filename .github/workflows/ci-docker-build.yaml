@@ -1,14 +1,14 @@
-name: Payment service Image workflow pipeline
+name: Docker Build
 
 on:
-  pull_request:
-    types: [closed]
-    branches:
-      - main
-
-concurrency:
-  group: payment-merge-build-${{ github.event.pull_request.number }}
-  cancel-in-progress: false
+  workflow_call:
+    outputs:
+      image_tag:
+        value: ${{ jobs.build.outputs.image_tag }}
+      failure_stage:
+        value: ${{ jobs.build.outputs.failure_stage }}
+      report_url:
+        value: ${{ jobs.build.outputs.report_url }}
 
 permissions:
   contents: read
@@ -16,116 +16,104 @@ permissions:
   security-events: write
 
 jobs:
-  get-email:
-    name: Get commit author
+  build:
     runs-on: ubuntu-latest
     outputs:
-      email: ${{ steps.author.outputs.email }}
-      name: ${{ steps.author.outputs.name }}
+      image_tag: ${{ steps.meta.outputs.tag }}
+      failure_stage: ${{ steps.set_outputs.outputs.failure_stage }}
+      report_url: ${{ steps.set_outputs.outputs.report_url }}
+
     steps:
-      - name: Checkout code
+      - name: Checkout
         uses: actions/checkout@v4
+
+      - name: Generate tag
+        id: meta
+        run: |
+          TAG=${GITHUB_SHA::7}
+          echo "tag=$TAG" >> "$GITHUB_OUTPUT"
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Login to DockerHub
+        uses: docker/login-action@v3
         with:
-          fetch-depth: 0
+          username: ${{ secrets.DOCKERHUB_USERNAME }}
+          password: ${{ secrets.DOCKERHUB_TOKEN }}
 
-      - name: Get latest commit author
-        id: author
-        shell: bash
+      - name: Debug Docker target
         run: |
-          SHA="${{ github.event.pull_request.head.sha }}"
+          echo "Docker username: '${{ secrets.DOCKERHUB_USERNAME }}'"
+          echo "Target repo: '${{ secrets.TEST_REPO }}'"
+          echo "Final tag: '${{ secrets.TEST_REPO }}:${{ steps.meta.outputs.tag }}'"
 
-          git log -1 "$SHA" || echo "Commit not found!"
-
-          EMAIL=$(git show -s --format='%ae' "$SHA")
-          NAME=$(git show -s --format='%an' "$SHA")
-
-          echo "email=$EMAIL" >> "$GITHUB_OUTPUT"
-          echo "name=$NAME" >> "$GITHUB_OUTPUT"
-
-          echo "Resolved email: $EMAIL"
-          echo "Resolved name: $NAME"
-
-  gate:
-    name: Validate merge conditions
-    runs-on: ubuntu-latest
-    outputs:
-      should_build: ${{ steps.gate.outputs.should_build }}
-    steps:
-      - name: Evaluate merge, label, and approval
-        id: gate
-        env:
-          GH_TOKEN: ${{ github.token }}
-        shell: bash
+      - name: Build image locally
+        id: docker_build
+        continue-on-error: true
         run: |
-          SHOULD_BUILD=false
+          docker buildx build \
+            --load \
+            -t ${{ secrets.TEST_REPO }}:${{ steps.meta.outputs.tag }} \
+            .
 
-          if [ "${{ github.event.pull_request.merged }}" != "true" ]; then
-            echo "PR was not merged"
-            echo "should_build=false" >> "$GITHUB_OUTPUT"
-            exit 0
+      - name: Install Trivy
+        id: install_trivy
+        if: ${{ steps.docker_build.outcome == 'success' }}
+        continue-on-error: true
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y wget gnupg lsb-release apt-transport-https
+          wget -qO - https://aquasecurity.github.io/trivy-repo/deb/public.key | \
+            gpg --dearmor | sudo tee /usr/share/keyrings/trivy.gpg > /dev/null
+          echo "deb [signed-by=/usr/share/keyrings/trivy.gpg] https://aquasecurity.github.io/trivy-repo/deb generic main" | \
+            sudo tee /etc/apt/sources.list.d/trivy.list
+          sudo apt-get update
+          sudo apt-get install -y trivy
+
+      - name: Scan image with Trivy 
+        id: trivy_scan
+        if: ${{ steps.docker_build.outcome == 'success' && steps.install_trivy.outcome == 'success' }}
+        continue-on-error: true
+        run: |
+          trivy image \
+            --scanners vuln \
+            --vex repo \
+            --vuln-type library \
+            --format sarif \
+            --output trivy-report.sarif \
+            --exit-code 1 \
+            --severity HIGH,CRITICAL \
+            ${{ secrets.TEST_REPO }}:${{ steps.meta.outputs.tag }}
+
+      - name: Upload SARIF to GitHub Security
+        if: ${{ steps.docker_build.outcome == 'success' && steps.trivy_scan.outcome != 'skipped' && always() }}
+        uses: github/codeql-action/upload-sarif@v3
+        with:
+          sarif_file: trivy-report.sarif
+
+      - name: Push image
+        if: ${{ steps.docker_build.outcome == 'success' && steps.trivy_scan.outcome == 'success' }}
+        run: |
+          docker push ${{ secrets.TEST_REPO }}:${{ steps.meta.outputs.tag }}
+
+      - name: Set outputs
+        id: set_outputs
+        run: |
+          if [ "${{ steps.docker_build.outcome }}" = "failure" ]; then
+            echo "failure_stage=build" >> "$GITHUB_OUTPUT"
+            echo "report_url=${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}" >> "$GITHUB_OUTPUT"
+          elif [ "${{ steps.install_trivy.outcome }}" = "failure" ]; then
+            echo "failure_stage=trivy-install" >> "$GITHUB_OUTPUT"
+            echo "report_url=${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}" >> "$GITHUB_OUTPUT"
+          elif [ "${{ steps.trivy_scan.outcome }}" = "failure" ]; then
+            echo "failure_stage=trivy" >> "$GITHUB_OUTPUT"
+            echo "report_url=${{ github.server_url }}/${{ github.repository }}/security/code-scanning" >> "$GITHUB_OUTPUT"
+          else
+            echo "failure_stage=" >> "$GITHUB_OUTPUT"
+            echo "report_url=${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}" >> "$GITHUB_OUTPUT"
           fi
 
-          if ! echo '${{ toJson(github.event.pull_request.labels.*.name) }}' | grep -q '"build"'; then
-            echo "PR does not have build label"
-            echo "should_build=false" >> "$GITHUB_OUTPUT"
-            exit 0
-          fi
-
-          gh api \
-            repos/${{ github.repository }}/pulls/${{ github.event.pull_request.number }}/reviews \
-            -H "Accept: application/vnd.github+json" > reviews.json
-
-          APPROVED=$(jq -r 'map(select(.state == "APPROVED")) | length > 0' reviews.json)
-
-          if [ "$APPROVED" = "true" ]; then
-            SHOULD_BUILD=true
-          fi
-
-          echo "should_build=$SHOULD_BUILD" >> "$GITHUB_OUTPUT"
-
-  docker-build:
-    name: Docker build
-    needs: gate
-    if: ${{ needs.gate.outputs.should_build == 'true' }}
-    permissions:
-      contents: read
-      actions: read
-      security-events: write
-    uses: ./.github/workflows/ci-docker-build.yaml
-    secrets: inherit
-
-  notify:
-      name: Notification for image pipeline
-      runs-on: ubuntu-latest
-      needs:
-        - gate
-        - get-email
-        - docker-build
-      if: ${{ always() && needs.gate.outputs.should_build == 'true' && needs.docker-build.result == 'failure' }}
-      steps:
-        - name: Checkout code
-          uses: actions/checkout@v4
-
-        - name: Debug notification values
-          run: |
-            echo "Author email: '${{ needs.get-email.outputs.email }}'"
-            echo "Author name: '${{ needs.get-email.outputs.name }}'"
-            echo "Docker build result: '${{ needs.docker-build.result }}'"
-            echo "Failure stage: '${{ needs.docker-build.outputs.failure_stage }}'"
-            echo "Report URL: '${{ needs.docker-build.outputs.report_url }}'"
-
-        - name: Send image pipeline notification
-          uses: ./.github/actions/send-notification
-          with:
-            pipeline_name: ${{ github.workflow }}
-            repository_name: ${{ github.repository }}
-            failure_reason: ${{ needs.docker-build.outputs.failure_stage == 'trivy' && 'Trivy Scan Failed' || needs.docker-build.outputs.failure_stage == 'trivy-install' && 'Trivy Install Failed' || 'Docker Build Failed' }}
-            author: ${{ needs.get-email.outputs.name || github.actor }}
-            smtp_username: ${{ secrets.SMTP_USERNAME }}
-            smtp_password: ${{ secrets.SMTP_PASSWORD }}
-            mail_from: ${{ secrets.MAIL_FROM }}
-            mail_to: ${{ needs.get-email.outputs.email || secrets.MAIL_TO }}
-            slack_webhook: ${{ secrets.SLACK_INCOMING_WEBHOOK }}
-            sonar_host_url: ${{ secrets.SONAR_HOST_URL }}
-            sonar_project_key: ${{ secrets.SONAR_PROJECT_KEY }}
-            report_url: ${{ needs.docker-build.outputs.report_url }}
+      - name: Fail job if build or scan failed
+        if: ${{ steps.docker_build.outcome == 'failure' || steps.install_trivy.outcome == 'failure' || steps.trivy_scan.outcome == 'failure' }}
+        run: exit 1
