@@ -1,7 +1,7 @@
 FROM dhi.io/python:3.13-dev AS builder
-
+#using the 3.13-dev image to ensure we have the latest pip and venv modules
 WORKDIR /app
-
+#  Set the PATH to include the virtual environment's bin directory
 ENV PATH="/app/venv/bin:$PATH"
 
 RUN python -m venv /app/venv
