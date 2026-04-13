@@ -32,14 +32,13 @@ spec:
                 matchLabels:
                   app: payments-microservice
               topologyKey: kubernetes.io/hostname
+      automountServiceAccountToken: false
  
       containers:
         - name: payments-container
           image: kubectlandchill/sales-payment-service:v1.1.0
           ports:
             - containerPort: 3000
- 
-          automountServiceAccountToken: false
  
           envFrom:
             - secretRef:
