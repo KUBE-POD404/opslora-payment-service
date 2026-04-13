@@ -13,10 +13,17 @@ permissions:
 
 jobs:
 
-  get-email:
+  # get-email:
+  #   runs-on: ubuntu-latest
+  #   outputs:
+  #     email: ${{ steps.author.outputs.email }}
+  get-author:
+    name: Get commit author details
     runs-on: ubuntu-latest
     outputs:
       email: ${{ steps.author.outputs.email }}
+      name: ${{ steps.author.outputs.name }}
+
 
     steps:
       - uses: actions/checkout@v4
@@ -27,7 +34,10 @@ jobs:
         run: |
           SHA="${{ github.event.pull_request.head.sha }}"
           EMAIL=$(git show -s --format='%ae' "$SHA")
+          NAME=$(git show -s --format='%an' "$SHA")
+
           echo "email=$EMAIL" >> "$GITHUB_OUTPUT"
+          echo "name=$NAME" >> "$GITHUB_OUTPUT"
 
   sonar-scan:
     uses: ./.github/workflows/ci_sonar_scan.yml
@@ -76,11 +86,13 @@ jobs:
           pipeline_name: ${{ github.workflow }}
           repository_name: ${{ github.repository }}
           failure_reason: ${{ needs.sonar-scan.outputs.notify_summary }}
-          author: ${{ github.event.pull_request.user.login }}
+          #author: ${{ github.event.pull_request.user.login }}
+          author: ${{ needs.get-author.outputs.name || github.actor }} 
           smtp_username: ${{ secrets.SMTP_USERNAME }}
           smtp_password: ${{ secrets.SMTP_PASSWORD }}
           mail_from: ${{ secrets.MAIL_FROM }}
-          mail_to: ${{ needs.get-email.outputs.email }}
+          #mail_to: ${{ needs.get-email.outputs.email }}
+          mail_to: ${{ needs.get-author.outputs.email }}
           slack_webhook: ${{ secrets.SLACK_INCOMING_WEBHOOK }}
           tool: sonar
           workflow_url: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
@@ -94,11 +106,13 @@ jobs:
           pipeline_name: ${{ github.workflow }}
           repository_name: ${{ github.repository }}
           failure_reason: ${{ needs.snyk-scan.outputs.notify_summary }}
-          author: ${{ github.event.pull_request.user.login }}
+          #author: ${{ github.event.pull_request.user.login }}
+          author: ${{ needs.get-author.outputs.name || github.actor }}
           smtp_username: ${{ secrets.SMTP_USERNAME }}
           smtp_password: ${{ secrets.SMTP_PASSWORD }}
           mail_from: ${{ secrets.MAIL_FROM }}
-          mail_to: ${{ needs.get-email.outputs.email }}
+          #mail_to: ${{ needs.get-email.outputs.email }}
+          mail_to: ${{ needs.get-author.outputs.email }}
           slack_webhook: ${{ secrets.SLACK_INCOMING_WEBHOOK }}
           tool: snyk
           workflow_url: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
