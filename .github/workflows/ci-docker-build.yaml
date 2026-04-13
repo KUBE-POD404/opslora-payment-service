@@ -1,4 +1,4 @@
-name: Docker Build
+name: Docker build
 
 on:
   workflow_call:
@@ -24,13 +24,14 @@ jobs:
       report_url: ${{ steps.set_outputs.outputs.report_url }}
 
     steps:
-      - name: Checkout
+      - name: Checkout code
         uses: actions/checkout@v4
 
-      - name: Generate tag
+      - name: Generate image tag
         id: meta
+        shell: bash
         run: |
-          TAG=${GITHUB_SHA::7}
+          TAG="${GITHUB_SHA::7}"
           echo "tag=$TAG" >> "$GITHUB_OUTPUT"
 
       - name: Set up Docker Buildx
@@ -42,25 +43,22 @@ jobs:
           username: ${{ secrets.DOCKERHUB_USERNAME }}
           password: ${{ secrets.DOCKERHUB_TOKEN }}
 
-      - name: Debug Docker target
-        run: |
-          echo "Docker username: '${{ secrets.DOCKERHUB_USERNAME }}'"
-          echo "Target repo: '${{ secrets.TEST_REPO }}'"
-          echo "Final tag: '${{ secrets.TEST_REPO }}:${{ steps.meta.outputs.tag }}'"
-
       - name: Build image locally
         id: docker_build
         continue-on-error: true
+        shell: bash
         run: |
           docker buildx build \
             --load \
             -t ${{ secrets.TEST_REPO }}:${{ steps.meta.outputs.tag }} \
+            -f Dockerfile \
             .
 
       - name: Install Trivy
         id: install_trivy
         if: ${{ steps.docker_build.outcome == 'success' }}
         continue-on-error: true
+        shell: bash
         run: |
           sudo apt-get update
           sudo apt-get install -y wget gnupg lsb-release apt-transport-https
@@ -71,14 +69,14 @@ jobs:
           sudo apt-get update
           sudo apt-get install -y trivy
 
-      - name: Scan image with Trivy 
+      - name: Scan image with Trivy
         id: trivy_scan
         if: ${{ steps.docker_build.outcome == 'success' && steps.install_trivy.outcome == 'success' }}
         continue-on-error: true
+        shell: bash
         run: |
           trivy image \
             --scanners vuln \
-            --vex repo \
             --vuln-type library \
             --format sarif \
             --output trivy-report.sarif \
@@ -87,18 +85,20 @@ jobs:
             ${{ secrets.TEST_REPO }}:${{ steps.meta.outputs.tag }}
 
       - name: Upload SARIF to GitHub Security
-        if: ${{ steps.docker_build.outcome == 'success' && steps.trivy_scan.outcome != 'skipped' && always() }}
+        if: ${{ always() && steps.trivy_scan.outcome != 'skipped' && hashFiles('trivy-report.sarif') != '' }}
         uses: github/codeql-action/upload-sarif@v3
         with:
           sarif_file: trivy-report.sarif
 
       - name: Push image
         if: ${{ steps.docker_build.outcome == 'success' && steps.trivy_scan.outcome == 'success' }}
+        shell: bash
         run: |
           docker push ${{ secrets.TEST_REPO }}:${{ steps.meta.outputs.tag }}
 
       - name: Set outputs
         id: set_outputs
+        shell: bash
         run: |
           if [ "${{ steps.docker_build.outcome }}" = "failure" ]; then
             echo "failure_stage=build" >> "$GITHUB_OUTPUT"
@@ -116,4 +116,5 @@ jobs:
 
       - name: Fail job if build or scan failed
         if: ${{ steps.docker_build.outcome == 'failure' || steps.install_trivy.outcome == 'failure' || steps.trivy_scan.outcome == 'failure' }}
+        shell: bash
         run: exit 1
