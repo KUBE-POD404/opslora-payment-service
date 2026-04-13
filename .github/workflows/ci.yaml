@@ -2,7 +2,7 @@ name: Payment Pipeline
 
 on:
   pull_request:
-    types: [opened, synchronize, closed]
+    types: [opened, synchronize]
 
 concurrency:
   group: opslora-payment-service-${{ github.repository }}-${{ github.ref }}
@@ -12,140 +12,74 @@ permissions:
   contents: read
 
 jobs:
-  get-author:
-    name: Get latest commit author
+  get-email:
     runs-on: ubuntu-latest
     outputs:
       email: ${{ steps.author.outputs.email }}
-      name: ${{ steps.author.outputs.name }}
 
     steps:
-      - name: Checkout code
-        uses: actions/checkout@v4
+      - uses: actions/checkout@v4
         with:
           fetch-depth: 0
 
-      - name: Get latest commit author
-        id: author
-        shell: bash
+      - id: author
         run: |
-          if [ "${{ github.event_name }}" = "pull_request" ]; then
-            SHA="${{ github.event.pull_request.head.sha }}"
-          else
-            SHA="${{ github.sha }}"
-          fi
-
-          git log -1 "$SHA" || echo "Commit not found!"
-
+          SHA="${{ github.event.pull_request.head.sha }}"
           EMAIL=$(git show -s --format='%ae' "$SHA")
-          NAME=$(git show -s --format='%an' "$SHA")
-
           echo "email=$EMAIL" >> "$GITHUB_OUTPUT"
-          echo "name=$NAME" >> "$GITHUB_OUTPUT"
-
-          echo "Resolved email: $EMAIL"
-          echo "Resolved name: $NAME"
 
   sonar-scan:
-    name: SonarQube Scan
     uses: ./.github/workflows/ci_sonar_scan.yml
     secrets: inherit
 
   snyk-scan:
-    name: Snyk Scan
-    needs:
-      - sonar-scan
+    needs: sonar-scan
     if: ${{ needs.sonar-scan.outputs.quality_gate_status == 'PASSED' }}
     uses: ./.github/workflows/ci_snyk_scan.yml
     secrets: inherit
 
-  # docker-build:
-  #   needs: [sonar-scan, snyk-scan]
-  #   if: >
-  #     github.event.action == 'closed' &&
-  #     github.event.pull_request.merged == true &&
-  #     contains(github.event.pull_request.labels.*.name, 'build') &&
-  #     needs.snyk-scan.outputs.snyk_status == 'success'
-  #   uses: ./.github/workflows/ci-docker-build.yaml
-  #   secrets: inherit
-
-  # trivy-scan:
-  #   needs: docker-build
-  #   uses: ./.github/workflows/ci-trivy-scan.yaml
-  #   with:
-  #     image_tag: ${{ needs.docker-build.outputs.image_tag }}
-  #   secrets: inherit
-
   notify:
-    name: Notification for Sonar and Snyk
-    needs:
-      - sonar-scan
-      - snyk-scan
-      - get-author
+    needs: [sonar-scan, snyk-scan, get-email]
     if: ${{ always() && (needs.sonar-scan.outputs.quality_gate_status == 'FAILED' || needs.snyk-scan.outputs.snyk_status == 'failure') }}
     runs-on: ubuntu-latest
 
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
-
-      - name: Debug notification values
-        run: |
-          echo "Author email: '${{ needs.get-author.outputs.email }}'"
-          echo "Author name: '${{ needs.get-author.outputs.name }}'"
-          echo "Sonar status: '${{ needs.sonar-scan.outputs.quality_gate_status }}'"
-          echo "Snyk status: '${{ needs.snyk-scan.outputs.snyk_status }}'"
-
-      - name: Send Sonar notification
+        
+      - name: Sonar Notification
         if: ${{ needs.sonar-scan.outputs.quality_gate_status == 'FAILED' }}
         uses: ./.github/actions/notification-action
         with:
           pipeline_name: ${{ github.workflow }}
           repository_name: ${{ github.repository }}
-          failure_reason: "SonarQube Quality Gate Failed"
-          author: ${{ needs.get-author.outputs.name || github.actor }}
+          failure_reason: ${{ needs.sonar-scan.outputs.notify_summary }}
+          author: ${{ github.event.pull_request.user.login }}
           smtp_username: ${{ secrets.SMTP_USERNAME }}
           smtp_password: ${{ secrets.SMTP_PASSWORD }}
           mail_from: ${{ secrets.MAIL_FROM }}
-          mail_to: ${{ needs.get-author.outputs.email }}
+          mail_to: ${{ needs.get-email.outputs.email }}
           slack_webhook: ${{ secrets.SLACK_INCOMING_WEBHOOK }}
           tool: sonar
           workflow_url: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
           sonar_host_url: ${{ secrets.SONAR_HOST_URL }}
           sonar_project_key: ${{ secrets.SONAR_PROJECT_KEY }}
-          report_url: ${{ secrets.SONAR_HOST_URL }}/dashboard?id=${{ secrets.SONAR_PROJECT_KEY }}
 
-      - name: Send Snyk notification
+      - name: Snyk Notification
         if: ${{ needs.snyk-scan.outputs.snyk_status == 'failure' }}
         uses: ./.github/actions/notification-action
         with:
           pipeline_name: ${{ github.workflow }}
           repository_name: ${{ github.repository }}
-          failure_reason: "Snyk Scan Failed"
-          author: ${{ needs.get-author.outputs.name || github.actor }}
+          failure_reason: ${{ needs.snyk-scan.outputs.notify_summary }}
+          author: ${{ github.event.pull_request.user.login }}
           smtp_username: ${{ secrets.SMTP_USERNAME }}
           smtp_password: ${{ secrets.SMTP_PASSWORD }}
           mail_from: ${{ secrets.MAIL_FROM }}
-          mail_to: ${{ needs.get-author.outputs.email }}
+          mail_to: ${{ needs.get-email.outputs.email }}
           slack_webhook: ${{ secrets.SLACK_INCOMING_WEBHOOK }}
           tool: snyk
           workflow_url: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
-          sonar_host_url: ${{ secrets.SONAR_HOST_URL }}
-          sonar_project_key: ${{ secrets.SONAR_PROJECT_KEY }}
-          report_url: https://app.snyk.io/org/${{ secrets.SNYK_ORG }}/project/${{ secrets.SNYK_PROJECT_ID }}
-
-      # - name: Trivy Notification
-      #   if: ${{ needs.trivy-scan.result == 'failure' }}
-      #   uses: ./.github/actions/notification-action
-      #   with:
-      #     pipeline_name: ${{ github.workflow }}
-      #     repository_name: ${{ github.repository }}
-      #     failure_reason: "Container vulnerabilities detected (HIGH/CRITICAL)"
-      #     author: ${{ needs.get-author.outputs.name || github.actor }}
-      #     smtp_username: ${{ secrets.SMTP_USERNAME }}
-      #     smtp_password: ${{ secrets.SMTP_PASSWORD }}
-      #     mail_from: ${{ secrets.MAIL_FROM }}
-      #     mail_to: ${{ needs.get-author.outputs.email }}
-      #     slack_webhook: ${{ secrets.SLACK_INCOMING_WEBHOOK }}
-      #     tool: trivy
-      #     workflow_url: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+          snyk_org: ${{ secrets.SNYK_ORG }}
+          snyk_project_name: ${{ github.event.repository.name }}
+          snyk_project_id: ${{ secrets.SNYK_PROJECT_ID }}

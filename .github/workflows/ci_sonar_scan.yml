@@ -1,4 +1,4 @@
-name: Payment Service Sonar Code Quality
+name: Payment Sonar Code Quality
 
 on:
   workflow_call:
@@ -12,12 +12,9 @@ on:
       notify_summary:
         value: ${{ jobs.code-quality.outputs.notify_summary }}
 
-
 jobs:
   code-quality:
-    name: SonarQube Code Quality
     runs-on: ubuntu-latest
-    timeout-minutes: 20
 
     outputs:
       quality_gate_status: ${{ steps.set_outputs.outputs.quality_gate_status }}
@@ -26,68 +23,47 @@ jobs:
       notify_summary: ${{ steps.set_outputs.outputs.notify_summary }}
 
     steps:
-      - name: Checkout code
-        uses: actions/checkout@v4
+      - uses: actions/checkout@v4
         with:
           fetch-depth: 0
 
-      # ✅ Cache (improves performance)
       - name: Cache Sonar
         uses: actions/cache@v4
         with:
           path: ~/.sonar/cache
-          key: ${{ runner.os }}-sonar-cache
-          restore-keys: |
-            ${{ runner.os }}-sonar-cache
+          key: ${{ runner.os }}-sonar
 
-      # ✅ Validate Sonar URL (avoid runtime failures)
-      - name: Validate Sonar Config
-        run: |
-          if [[ -z "${{ secrets.SONAR_HOST_URL }}" ]]; then
-            echo "SONAR_HOST_URL is missing"
-            exit 1
-          fi
-
-      # ✅ Sonar Scan (latest stable)
       - name: Sonar Scan
-        uses: SonarSource/sonarqube-scan-action@v7.1.0
+        uses: SonarSource/sonarqube-scan-action@v2
         with:
-          args: >
-            -Dsonar.projectKey=${{ secrets.SONAR_PROJECT_KEY }}
+          args: -Dsonar.projectKey=${{ secrets.SONAR_PROJECT_KEY }}
         env:
           SONAR_TOKEN: ${{ secrets.SONAR_TOKEN }}
           SONAR_HOST_URL: ${{ secrets.SONAR_HOST_URL }}
 
-      # ✅ Quality Gate Check
       - name: Quality Gate
         id: qg
         uses: SonarSource/sonarqube-quality-gate-action@v1
-        timeout-minutes: 5
         env:
           SONAR_TOKEN: ${{ secrets.SONAR_TOKEN }}
           SONAR_HOST_URL: ${{ secrets.SONAR_HOST_URL }}
         continue-on-error: true
 
-      # ✅ Set outputs (IMPORTANT for pipeline.yaml)
       - name: Set outputs
         id: set_outputs
         run: |
           STATUS="${{ steps.qg.outputs.quality-gate-status }}"
-
           echo "quality_gate_status=$STATUS" >> $GITHUB_OUTPUT
           echo "notify_tool=sonar" >> $GITHUB_OUTPUT
 
           if [ "$STATUS" = "FAILED" ]; then
-            echo "notify_title=SonarQube Quality Gate Failed" >> $GITHUB_OUTPUT
-            echo "notify_summary=Code quality gate failed. Fix issues before proceeding." >> $GITHUB_OUTPUT
+            echo "notify_title=Sonar Failed" >> $GITHUB_OUTPUT
+            echo "notify_summary=Quality gate failed" >> $GITHUB_OUTPUT
           else
-            echo "notify_title=SonarQube Passed" >> $GITHUB_OUTPUT
-            echo "notify_summary=Quality gate passed successfully." >> $GITHUB_OUTPUT
+            echo "notify_title=Sonar Passed" >> $GITHUB_OUTPUT
+            echo "notify_summary=Quality gate passed" >> $GITHUB_OUTPUT
           fi
 
-      # ✅ Fail pipeline if Sonar fails (this controls flow)
       - name: Fail if quality gate failed
         if: ${{ steps.qg.outputs.quality-gate-status == 'FAILED' }}
-        run: |
-          echo "SonarQube Quality Gate failed. Blocking pipeline."
-          exit 1
+        run: exit 1
