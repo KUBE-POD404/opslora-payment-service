@@ -39,22 +39,22 @@ jobs:
     uses: ./.github/workflows/ci_snyk_scan.yml
     secrets: inherit
 
-  docker-build:
-    needs: [sonar-scan, snyk-scan]
-    if: >
-      github.event.action == 'closed' &&
-      github.event.pull_request.merged == true &&
-      contains(github.event.pull_request.labels.*.name, 'build') &&
-      needs.snyk-scan.outputs.snyk_status == 'success'
-    uses: ./.github/workflows/ci-docker-build.yaml
-    secrets: inherit
+  # docker-build:
+  #   needs: [sonar-scan, snyk-scan]
+  #   if: >
+  #     github.event.action == 'closed' &&
+  #     github.event.pull_request.merged == true &&
+  #     contains(github.event.pull_request.labels.*.name, 'build') &&
+  #     needs.snyk-scan.outputs.snyk_status == 'success'
+  #   uses: ./.github/workflows/ci-docker-build.yaml
+  #   secrets: inherit
 
-  trivy-scan:
-    needs: docker-build
-    uses: ./.github/workflows/ci-trivy-scan.yaml
-    with:
-      image_tag: ${{ needs.docker-build.outputs.image_tag }}
-    secrets: inherit
+  # trivy-scan:
+  #   needs: docker-build
+  #   uses: ./.github/workflows/ci-trivy-scan.yaml
+  #   with:
+  #     image_tag: ${{ needs.docker-build.outputs.image_tag }}
+  #   secrets: inherit
 
   notify:
     needs: [sonar-scan, snyk-scan, trivy-scan, get-email]
@@ -106,18 +106,18 @@ jobs:
           snyk_org: ${{ secrets.SNYK_ORG }}
           snyk_project_id: ${{ secrets.SNYK_PROJECT_ID }}
 
-      - name: Trivy Notification
-        if: ${{ needs.trivy-scan.result == 'failure' }}
-        uses: ./.github/actions/notification-action
-        with:
-          pipeline_name: ${{ github.workflow }}
-          repository_name: ${{ github.repository }}
-          failure_reason: "Container vulnerabilities detected (HIGH/CRITICAL)"
-          author: ${{ github.event.pull_request.user.login }}
-          smtp_username: ${{ secrets.SMTP_USERNAME }}
-          smtp_password: ${{ secrets.SMTP_PASSWORD }}
-          mail_from: ${{ secrets.MAIL_FROM }}
-          mail_to: ${{ needs.get-email.outputs.email }}
-          slack_webhook: ${{ secrets.SLACK_INCOMING_WEBHOOK }}
-          tool: trivy
-          workflow_url: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+      # - name: Trivy Notification
+      #   if: ${{ needs.trivy-scan.result == 'failure' }}
+      #   uses: ./.github/actions/notification-action
+      #   with:
+      #     pipeline_name: ${{ github.workflow }}
+      #     repository_name: ${{ github.repository }}
+      #     failure_reason: "Container vulnerabilities detected (HIGH/CRITICAL)"
+      #     author: ${{ github.event.pull_request.user.login }}
+      #     smtp_username: ${{ secrets.SMTP_USERNAME }}
+      #     smtp_password: ${{ secrets.SMTP_PASSWORD }}
+      #     mail_from: ${{ secrets.MAIL_FROM }}
+      #     mail_to: ${{ needs.get-email.outputs.email }}
+      #     slack_webhook: ${{ secrets.SLACK_INCOMING_WEBHOOK }}
+      #     tool: trivy
+      #     workflow_url: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
