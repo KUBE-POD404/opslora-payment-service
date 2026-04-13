@@ -21,8 +21,8 @@ ENV PYTHONUNBUFFERED=1
 COPY --from=builder /app/venv /app/venv
 COPY app/ ./app/
  
-# RUN useradd -m appuser && chown -R appuser:appuser /app
-# USER appuser
+RUN useradd -m appuser && chown -R appuser:appuser /app
+USER appuser
  
 EXPOSE 3000
  
