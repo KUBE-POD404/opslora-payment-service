@@ -32,7 +32,7 @@ spec:
                 matchLabels:
                   app: payments-microservice
               topologyKey: kubernetes.io/hostname
-      #automountServiceAccountToken: false
+      automountServiceAccountToken: false
  
       containers:
         - name: payments-container
