@@ -87,7 +87,7 @@ jobs:
           repository_name: ${{ github.repository }}
           failure_reason: ${{ needs.sonar-scan.outputs.notify_summary }}
           #author: ${{ github.event.pull_request.user.login }}
-          author: ${{ needs.get-author.outputs.name || github.actor }} 
+          author: ${{ needs.get-author.outputs.name }} 
           smtp_username: ${{ secrets.SMTP_USERNAME }}
           smtp_password: ${{ secrets.SMTP_PASSWORD }}
           mail_from: ${{ secrets.MAIL_FROM }}
@@ -107,7 +107,7 @@ jobs:
           repository_name: ${{ github.repository }}
           failure_reason: ${{ needs.snyk-scan.outputs.notify_summary }}
           #author: ${{ github.event.pull_request.user.login }}
-          author: ${{ needs.get-author.outputs.name || github.actor }}
+          author: ${{ needs.get-author.outputs.name }}
           smtp_username: ${{ secrets.SMTP_USERNAME }}
           smtp_password: ${{ secrets.SMTP_PASSWORD }}
           mail_from: ${{ secrets.MAIL_FROM }}
