@@ -57,13 +57,12 @@ jobs:
   #   secrets: inherit
 
   notify:
-    needs: [sonar-scan, snyk-scan, trivy-scan, get-email]
+    needs: [sonar-scan, snyk-scan]
     if: >
       always() &&
       (
         needs.sonar-scan.outputs.quality_gate_status == 'FAILED' ||
-        needs.snyk-scan.outputs.snyk_status == 'failure' ||
-        needs.trivy-scan.result == 'failure'
+        needs.snyk-scan.outputs.snyk_status == 'failure' 
       )
     runs-on: ubuntu-latest
 
