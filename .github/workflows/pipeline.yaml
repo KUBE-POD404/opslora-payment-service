@@ -1,0 +1,112 @@
+name: Payment Service CI
+
+on:
+  pull_request:
+    types: [opened, synchronize]
+    branches:
+      - main
+
+concurrency:
+  group: payment-ci-${{ github.repository }}-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  get-author:
+    name: Get commit author details
+    runs-on: ubuntu-latest
+    outputs:
+      email: ${{ steps.author.outputs.email }}
+      name: ${{ steps.author.outputs.name }}
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Extract author info
+        id: author
+        shell: bash
+        run: |
+          SHA="${{ github.event.pull_request.head.sha }}"
+
+          EMAIL=$(git show -s --format='%ae' "$SHA")
+          NAME=$(git show -s --format='%an' "$SHA")
+
+          echo "email=$EMAIL" >> "$GITHUB_OUTPUT"
+          echo "name=$NAME" >> "$GITHUB_OUTPUT"
+
+          echo "Resolved email: $EMAIL"
+          echo "Resolved name: $NAME"
+
+  sonar-scan:
+    name: SonarQube Scan
+    uses: ./.github/workflows/ci_sonar_scan.yaml
+    secrets: inherit
+
+  snyk-scan:
+    name: Snyk Scan
+    needs: sonar-scan
+    if: ${{ needs.sonar-scan.outputs.quality_gate_status == 'PASSED' }}
+    uses: ./.github/workflows/ci_snyk_scan.yaml
+    secrets: inherit
+
+  notify:
+    name: Notify on Failure
+    needs:
+      - sonar-scan
+      - snyk-scan
+      - get-author
+    if: ${{ always() && (needs.sonar-scan.outputs.quality_gate_status == 'FAILED' || needs.snyk-scan.outputs.snyk_status == 'failure') }}
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Debug values
+        run: |
+          echo "Author: ${{ needs.get-author.outputs.name }}"
+          echo "Email: ${{ needs.get-author.outputs.email }}"
+          echo "Sonar: ${{ needs.sonar-scan.outputs.quality_gate_status }}"
+          echo "Snyk: ${{ needs.snyk-scan.outputs.snyk_status }}"
+
+      - name: Sonar Notification
+        if: ${{ needs.sonar-scan.outputs.quality_gate_status == 'FAILED' }}
+        uses: ./.github/actions/notification-action
+        with:
+          pipeline_name: ${{ github.workflow }}
+          repository_name: ${{ github.repository }}
+          failure_reason: ${{ needs.sonar-scan.outputs.notify_summary }}
+          author: ${{ needs.get-author.outputs.name || github.actor }}
+          smtp_username: ${{ secrets.SMTP_USERNAME }}
+          smtp_password: ${{ secrets.SMTP_PASSWORD }}
+          mail_from: ${{ secrets.MAIL_FROM }}
+          mail_to: ${{ needs.get-author.outputs.email }}
+          slack_webhook: ${{ secrets.SLACK_INCOMING_WEBHOOK }}
+          tool: sonar
+          workflow_url: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+          sonar_host_url: ${{ secrets.SONAR_HOST_URL }}
+          sonar_project_key: ${{ secrets.SONAR_PROJECT_KEY }}
+
+      - name: Snyk Notification
+        if: ${{ needs.snyk-scan.outputs.snyk_status == 'failure' }}
+        uses: ./.github/actions/notification-action
+        with:
+          pipeline_name: ${{ github.workflow }}
+          repository_name: ${{ github.repository }}
+          failure_reason: ${{ needs.snyk-scan.outputs.notify_summary }}
+          author: ${{ needs.get-author.outputs.name || github.actor }}
+          smtp_username: ${{ secrets.SMTP_USERNAME }}
+          smtp_password: ${{ secrets.SMTP_PASSWORD }}
+          mail_from: ${{ secrets.MAIL_FROM }}
+          mail_to: ${{ needs.get-author.outputs.email }}
+          slack_webhook: ${{ secrets.SLACK_INCOMING_WEBHOOK }}
+          tool: snyk
+          workflow_url: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+          snyk_org: ${{ secrets.SNYK_ORG }}
+          snyk_project_name: ${{ github.event.repository.name }}
+          snyk_project_id: ${{ secrets.SNYK_PROJECT_ID }}

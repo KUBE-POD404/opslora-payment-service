@@ -1,0 +1,102 @@
+name: Payment Service Snyk Scan
+
+on:
+  workflow_call:
+    outputs:
+      snyk_status:
+        description: "Snyk outcome"
+        value: ${{ jobs.snyk.outputs.snyk_status }}
+      notify_tool:
+        value: ${{ jobs.snyk.outputs.notify_tool }}
+      notify_title:
+        value: ${{ jobs.snyk.outputs.notify_title }}
+      notify_summary:
+        value: ${{ jobs.snyk.outputs.notify_summary }}
+
+permissions:
+  contents: read
+
+jobs:
+  snyk:
+    name: Snyk Dependency Scan
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+
+    defaults:
+      run:
+        shell: bash
+
+    outputs:
+      snyk_status: ${{ steps.set.outputs.snyk_status }}
+      notify_tool: ${{ steps.set.outputs.notify_tool }}
+      notify_title: ${{ steps.set.outputs.notify_title }}
+      notify_summary: ${{ steps.set.outputs.notify_summary }}
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.13"
+          cache: pip
+          cache-dependency-path: requirements.txt
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install --prefer-binary -r requirements.txt
+
+      - name: Run Snyk test
+        id: snyk
+        uses: snyk/actions/python@v1
+        with:
+          args: >-
+            --file=requirements.txt
+            --severity-threshold=high
+            --project-name=${{ github.repository }}
+            --target-reference=${{ github.ref_name }}
+        env:
+          SNYK_TOKEN: ${{ secrets.SNYK_TOKEN }}
+        continue-on-error: true
+
+      - name: Setup Snyk CLI
+        uses: snyk/actions/setup@v1
+
+      - name: Authenticate Snyk
+        run: snyk auth $SNYK_TOKEN
+        env:
+          SNYK_TOKEN: ${{ secrets.SNYK_TOKEN }}
+
+      - name: Publish Snyk snapshot
+        run: |
+          snyk monitor \
+            --file=requirements.txt \
+            --project-name=${{ github.repository }}
+
+      - name: Show Snyk result
+        run: |
+          echo "Snyk outcome: ${{ steps.snyk.outcome }}"
+
+      - name: Set outputs
+        id: set
+        run: |
+          STATUS="${{ steps.snyk.outcome }}"
+
+          echo "snyk_status=$STATUS" >> $GITHUB_OUTPUT
+          echo "notify_tool=snyk" >> $GITHUB_OUTPUT
+
+          if [ "$STATUS" = "failure" ]; then
+            echo "notify_title=Snyk Security Scan Failed" >> $GITHUB_OUTPUT
+            echo "notify_summary=High severity vulnerabilities detected in dependencies." >> $GITHUB_OUTPUT
+          else
+            echo "notify_title=Snyk Passed" >> $GITHUB_OUTPUT
+            echo "notify_summary=No high severity vulnerabilities found." >> $GITHUB_OUTPUT
+          fi
+
+      - name: Fail if Snyk failed
+        if: ${{ steps.snyk.outcome == 'failure' }}
+        run: |
+          echo "Snyk scan failed. Blocking pipeline."
+          exit 1
