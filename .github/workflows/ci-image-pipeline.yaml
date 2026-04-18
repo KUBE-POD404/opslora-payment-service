@@ -14,6 +14,7 @@ permissions:
   contents: read
   actions: read
   security-events: write
+  packages: write
 
 jobs:
   get-email:
@@ -33,47 +34,36 @@ jobs:
         shell: bash
         run: |
           SHA="${{ github.event.pull_request.head.sha }}"
-
-          git log -1 "$SHA" || echo "Commit not found!"
-
           EMAIL=$(git show -s --format='%ae' "$SHA")
           NAME=$(git show -s --format='%an' "$SHA")
-
           echo "email=$EMAIL" >> "$GITHUB_OUTPUT"
           echo "name=$NAME" >> "$GITHUB_OUTPUT"
 
-          echo "Resolved email: $EMAIL"
-          echo "Resolved name: $NAME"
-
   gate:
-    name: Validate merge conditions
     runs-on: ubuntu-latest
     outputs:
       should_build: ${{ steps.gate.outputs.should_build }}
     steps:
-      - name: Evaluate merge, label, and approval
-        id: gate
-        env:
-          GH_TOKEN: ${{ github.token }}
-        shell: bash
+      - name: Install jq
+        run: sudo apt-get update && sudo apt-get install -y jq
+
+      - id: gate
         run: |
+          export GH_TOKEN=${{ github.token }}
+
           SHOULD_BUILD=false
 
           if [ "${{ github.event.pull_request.merged }}" != "true" ]; then
-            echo "PR was not merged"
             echo "should_build=false" >> "$GITHUB_OUTPUT"
             exit 0
           fi
 
           if ! echo '${{ toJson(github.event.pull_request.labels.*.name) }}' | grep -q '"build"'; then
-            echo "PR does not have build label"
             echo "should_build=false" >> "$GITHUB_OUTPUT"
             exit 0
           fi
 
-          gh api \
-            repos/${{ github.repository }}/pulls/${{ github.event.pull_request.number }}/reviews \
-            -H "Accept: application/vnd.github+json" > reviews.json
+          gh api repos/${{ github.repository }}/pulls/${{ github.event.pull_request.number }}/reviews > reviews.json
 
           APPROVED=$(jq -r 'map(select(.state == "APPROVED")) | length > 0' reviews.json)
 
@@ -84,15 +74,16 @@ jobs:
           echo "should_build=$SHOULD_BUILD" >> "$GITHUB_OUTPUT"
 
   docker-build:
-    name: Docker build
     needs: gate
     if: ${{ needs.gate.outputs.should_build == 'true' }}
     permissions:
       contents: read
       actions: read
       security-events: write
+      packages: write
     uses: ./.github/workflows/ci-docker-build.yaml
     secrets: inherit
+
 
   notify:
       name: Notification for image pipeline
@@ -106,26 +97,17 @@ jobs:
         - name: Checkout code
           uses: actions/checkout@v4
 
-        - name: Debug notification values
-          run: |
-            echo "Author email: '${{ needs.get-email.outputs.email }}'"
-            echo "Author name: '${{ needs.get-email.outputs.name }}'"
-            echo "Docker build result: '${{ needs.docker-build.result }}'"
-            echo "Failure stage: '${{ needs.docker-build.outputs.failure_stage }}'"
-            echo "Report URL: '${{ needs.docker-build.outputs.report_url }}'"
-
         - name: Send image pipeline notification
           uses: ./.github/actions/notification-action
           with:
             pipeline_name: ${{ github.workflow }}
             repository_name: ${{ github.repository }}
-            failure_reason: ${{ needs.docker-build.outputs.failure_stage == 'trivy' && 'Trivy Scan Failed' || needs.docker-build.outputs.failure_stage == 'trivy-install' && 'Trivy Install Failed' || 'Docker Build Failed' }}
+            failure_reason: ${{ needs.docker-build.outputs.failure_stage }}
             author: ${{ needs.get-email.outputs.name || github.actor }}
             smtp_username: ${{ secrets.SMTP_USERNAME }}
             smtp_password: ${{ secrets.SMTP_PASSWORD }}
             mail_from: ${{ secrets.MAIL_FROM }}
             mail_to: ${{ needs.get-email.outputs.email || secrets.MAIL_TO }}
             slack_webhook: ${{ secrets.SLACK_INCOMING_WEBHOOK }}
-            sonar_host_url: ${{ secrets.SONAR_HOST_URL }}
-            sonar_project_key: ${{ secrets.SONAR_PROJECT_KEY }}
+            workflow_url: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
             report_url: ${{ needs.docker-build.outputs.report_url }}

@@ -1,73 +1,76 @@
-name: Release Pipeline
+name: Customer Release Pipeline
 
 on:
   release:
     types: [published]
+
+permissions:
+  contents: read
+  packages: write
 
 jobs:
   promote:
     runs-on: ubuntu-latest
 
     steps:
-      - name: Extract and validate release tag
-        id: version
+      - id: version
         run: |
           TAG='${{ github.event.release.tag_name }}'
           REGEX='^v[0-9]+\.[0-9]+\.[0-9]+(-((alpha|beta|rc)\.[0-9]+))?$'
 
           if [[ ! "$TAG" =~ $REGEX ]]; then
-            echo "Invalid release tag: $TAG"
-            echo "Expected format: vMAJOR.MINOR.PATCH or vMAJOR.MINOR.PATCH-rc.N / -beta.N / -alpha.N"
+            echo "Invalid tag format: $TAG"
             exit 1
           fi
 
           echo "version=$TAG" >> "$GITHUB_OUTPUT"
 
-      - name: Login DockerHub
+      - name: Login to GHCR
         uses: docker/login-action@v3
         with:
-          username: ${{ secrets.DOCKERHUB_USERNAME }}
-          password: ${{ secrets.DOCKERHUB_TOKEN }}
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
 
       - name: Checkout code
         uses: actions/checkout@v4
         with:
           fetch-depth: 0
 
-      - name: Validate tag commit is in main
+      - id: image
+        run: |
+          OWNER=$(echo "${{ github.repository_owner }}" | tr '[:upper:]' '[:lower:]')
+          REPO=$(echo "${{ github.event.repository.name }}" | tr '[:upper:]' '[:lower:]')
+
+          IMAGE=ghcr.io/$OWNER/$REPO
+          echo "image=$IMAGE" >> $GITHUB_OUTPUT
+
+          echo "Using image: $IMAGE"
+
+      - id: sha
         run: |
           TAG='${{ github.event.release.tag_name }}'
-          COMMIT=$(git rev-list -n 1 "$TAG")
 
-          git fetch origin main
-
-          if git merge-base --is-ancestor "$COMMIT" origin/main; then
-            echo "Tag commit is part of main"
-          else
-            echo "ERROR: Tag $TAG points to commit $COMMIT, which is not in main"
-            exit 1
-          fi
-
-      - name: Resolve tagged commit SHA
-        id: sha
-        run: |
-          TAG='${{ github.event.release.tag_name }}'
           SHA=$(git rev-list -n 1 "$TAG")
           SHORT_SHA="${SHA::7}"
+
           echo "sha=$SHORT_SHA" >> "$GITHUB_OUTPUT"
-          echo "Resolved release tag $TAG to commit $SHA"
-          echo "Using test image tag $SHORT_SHA"
 
-      - name: Pull image from TEST repo
-        run: |
-          docker pull ${{ secrets.TEST_REPO }}:${{ steps.sha.outputs.sha }}
+          echo "Resolved tag $TAG → commit $SHA → short $SHORT_SHA"
 
-      - name: Tag for PROD using release tag
+      - name: Promote image
         run: |
-          docker tag \
-            ${{ secrets.TEST_REPO }}:${{ steps.sha.outputs.sha }} \
-            ${{ secrets.PROD_REPO }}:${{ steps.version.outputs.version }}
+          IMAGE=${{ steps.image.outputs.image }}
+          SHA=${{ steps.sha.outputs.sha }}
+          VERSION=${{ steps.version.outputs.version }}
 
-      - name: Push tagged PROD image
-        run: |
-          docker push ${{ secrets.PROD_REPO }}:${{ steps.version.outputs.version }}
+          echo "Pulling image: $IMAGE:$SHA"
+          docker pull $IMAGE:$SHA
+
+          echo "Tagging image: $IMAGE:$VERSION"
+          docker tag $IMAGE:$SHA $IMAGE:$VERSION
+
+          echo "Pushing image with retry..."
+          for i in 1 2 3; do
+            docker push $IMAGE:$VERSION && break || sleep 5
+          done

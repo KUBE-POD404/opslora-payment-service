@@ -1,4 +1,4 @@
-name: Send Notification
+name: Email and Slack Notification
 description: Send email and Slack notification
 
 inputs:
@@ -20,16 +20,15 @@ inputs:
     required: true
   slack_webhook:
     required: true
-  sonar_host_url:
-    required: true
-  sonar_project_key:
+  workflow_url:
     required: true
   report_url:
-    required: false
+    required: true
 
 runs:
   using: composite
   steps:
+
     - name: Send email
       uses: hilarion5/send-mail@v1
       with:
@@ -38,70 +37,31 @@ runs:
         smtp-secure: false
         username: ${{ inputs.smtp_username }}
         password: ${{ inputs.smtp_password }}
-        from-email: "Opslora CI-Alerts <${{ inputs.mail_from }}>"
+        from-email: "Opslora CI Alerts <${{ inputs.mail_from }}>"
         to-email: ${{ inputs.mail_to }}
-        subject: "${{ inputs.pipeline_name }} FAILED"
+        subject: "[CI ALERT] ${{ inputs.pipeline_name }} FAILED - ${{ inputs.repository_name }}"
         html: |
-          <div style="margin:0;padding:24px;background-color:#f4f7fb;font-family:Arial,Helvetica,sans-serif;color:#1f2937;">
-            <table role="presentation" width="100%" cellspacing="0" cellpadding="0" style="max-width:700px;margin:0 auto;background:#ffffff;border:1px solid #e5e7eb;border-radius:12px;overflow:hidden;">
-              <tr>
-                <td style="background:#b91c1c;padding:18px 24px;">
-                  <h2 style="margin:0;color:#ffffff;font-size:22px;font-weight:700;">
-                    Pipeline Failure Alert
-                  </h2>
-                </td>
-              </tr>
+          <div style="padding:24px;background:#f4f7fb;font-family:Arial;">
+            <h2 style="color:#b91c1c;">Pipeline Failure</h2>
 
-              <tr>
-                <td style="padding:24px;">
-                  <p style="margin:0 0 18px 0;font-size:18px;font-weight:700;color:#111827;">
-                    ${{ inputs.pipeline_name }} - ${{ inputs.repository_name }}
-                  </p>
+            <p><b>Pipeline:</b> ${{ inputs.pipeline_name }}</p>
+            <p><b>Repository:</b> ${{ inputs.repository_name }}</p>
+            <p><b>Author:</b> ${{ inputs.author }}</p>
+            <p><b>Reason:</b> ${{ inputs.failure_reason }}</p>
 
-                  <table role="presentation" width="100%" cellspacing="0" cellpadding="0" style="border-collapse:collapse;">
-                    <tr>
-                      <td style="padding:12px 0;border-top:1px solid #e5e7eb;">
-                        <span style="display:block;font-size:12px;font-weight:700;letter-spacing:0.04em;color:#6b7280;">STATUS</span>
-                        <span style="display:inline-block;margin-top:6px;padding:6px 10px;background:#fee2e2;color:#991b1b;border-radius:999px;font-size:12px;font-weight:700;">
-                          FAILED
-                        </span>
-                      </td>
-                    </tr>
+            <br/>
 
-                    <tr>
-                      <td style="padding:12px 0;border-top:1px solid #e5e7eb;">
-                        <span style="display:block;font-size:12px;font-weight:700;letter-spacing:0.04em;color:#6b7280;">REASON</span>
-                        <span style="display:block;margin-top:6px;font-size:15px;color:#111827;">
-                          ${{ inputs.failure_reason }}
-                        </span>
-                      </td>
-                    </tr>
+            <a href="${{ inputs.report_url }}"
+               style="padding:12px 18px;background:#2563eb;color:#fff;text-decoration:none;border-radius:6px;">
+               View Report
+            </a>
 
-                    <tr>
-                      <td style="padding:12px 0;border-top:1px solid #e5e7eb;">
-                        <span style="display:block;font-size:12px;font-weight:700;letter-spacing:0.04em;color:#6b7280;">AUTHOR</span>
-                        <span style="display:block;margin-top:6px;font-size:15px;color:#111827;">
-                          ${{ inputs.author }}
-                        </span>
-                      </td>
-                    </tr>
-                  </table>
+            <br/><br/>
 
-                  <div style="margin-top:24px;">
-                    <a href="${{ inputs.report_url }}"
-                       style="display:inline-block;padding:12px 18px;background:#2563eb;color:#ffffff;text-decoration:none;border-radius:8px;font-size:14px;font-weight:700;">
-                      View Workflow Run
-                    </a>
-                  </div>
-                </td>
-              </tr>
-
-              <tr>
-                <td style="padding:16px 24px;background:#f9fafb;border-top:1px solid #e5e7eb;font-size:12px;color:#6b7280;">
-                  This is an automated CI/CD notification from GitHub Actions.
-                </td>
-              </tr>
-            </table>
+            <a href="${{ inputs.workflow_url }}"
+               style="padding:10px 14px;background:#111;color:#fff;text-decoration:none;border-radius:6px;">
+               View Workflow
+            </a>
           </div>
 
     - name: Post to Slack
@@ -110,38 +70,40 @@ runs:
         webhook: ${{ inputs.slack_webhook }}
         webhook-type: incoming-webhook
         payload: |
-          text: "🚨 ${{ inputs.pipeline_name }} failed"
           attachments:
-            - color: "#dc2626"   # 🔴 RED (failure)
+            - color: "#dc2626"
               blocks:
+
                 - type: header
                   text:
                     type: plain_text
-                    text: "🚨 Pipeline Failure Alert"
-                    emoji: true
+                    text: "CI Pipeline Failure"
 
                 - type: section
                   fields:
                     - type: mrkdwn
-                      text: "*Pipeline:*\n${{ inputs.pipeline_name }}"
+                      text: "*Pipeline*\n${{ inputs.pipeline_name }}"
                     - type: mrkdwn
-                      text: "*Repository:*\n${{ inputs.repository_name }}"
-                    - type: mrkdwn
-                      text: "*Status:*\nFAILED"
-                    - type: mrkdwn
-                      text: "*Author:*\n${{ inputs.author }}"
+                      text: "*Repository*\n${{ inputs.repository_name }}"
 
                 - type: section
-                  text:
-                    type: mrkdwn
-                    text: "*Reason:*\n${{ inputs.failure_reason }}"
+                  fields:
+                    - type: mrkdwn
+                      text: "*Author*\n${{ inputs.author }}"
+                    - type: mrkdwn
+                      text: "*Failure Reason*\n${{ inputs.failure_reason }}"
 
                 - type: actions
                   elements:
                     - type: button
                       text:
                         type: plain_text
-                        text: "View Workflow Run"
-                        emoji: true
+                        text: "View Report"
                       url: "${{ inputs.report_url }}"
                       style: danger
+
+                    - type: button
+                      text:
+                        type: plain_text
+                        text: "View Workflow"
+                      url: "${{ inputs.workflow_url }}"
