@@ -29,13 +29,13 @@ jobs:
           echo "email=$EMAIL" >> "$GITHUB_OUTPUT"
 
   sonar-scan:
-    uses: ./.github/workflows/ci_sonar_scan.yaml
+    uses: ./.github/workflows/ci_sonar_scan.yml
     secrets: inherit
 
   snyk-scan:
     needs: sonar-scan
     if: ${{ needs.sonar-scan.outputs.quality_gate_status == 'PASSED' }}
-    uses: ./.github/workflows/ci_snyk_scan.yaml
+    uses: ./.github/workflows/ci_snyk_scan.yml
     secrets: inherit
 
   notify:
