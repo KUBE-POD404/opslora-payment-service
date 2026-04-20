@@ -90,7 +90,7 @@ jobs:
     uses: ./.github/workflows/update-helm-test.yaml
     with:
       helm_repo: KUBE-POD404/opslora-helm-charts
-      helm_branch: refactor/opslora-helm
+      helm_branch: test/opslora-helm-test
       values_file: opslora-helm/apps/payment/values-test.yaml
       image_tag: ${{ needs.docker-build.outputs.image_tag }}
       yaml_path: .image.tag
