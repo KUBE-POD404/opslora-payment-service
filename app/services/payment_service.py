@@ -2,16 +2,16 @@ from datetime import datetime, timezone
 from decimal import Decimal
 from sqlalchemy.orm import Session
 from sqlalchemy import func
-import os
 import logging
 
 from app.models.payment import Payment
 from app.exceptions.custom_exceptions import NotFoundException, ConflictException
 from app.utils.service_client import authenticated_get, authenticated_post
 from app.core.logging_config import request_id_ctx
+from app.core.config import settings
 
-INVOICE_SERVICE_URL = os.getenv("INVOICE_SERVICE_URL")
-API_VERSION = os.getenv("API_VERSION", "/api/v1")
+INVOICE_SERVICE_URL = settings.invoice_service_url
+API_VERSION = settings.api_version
 
 logger = logging.getLogger(__name__)
 

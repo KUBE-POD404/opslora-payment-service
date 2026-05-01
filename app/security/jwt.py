@@ -1,10 +1,8 @@
-import os
 import jwt
 from jwt import PyJWTError
+from app.core.config import settings
  
-SECRET_KEY = os.getenv("JWT_SECRET_KEY")
-if not SECRET_KEY:
-    raise ValueError("JWT_SECRET_KEY is not set")
+SECRET_KEY = settings.jwt_secret_key
  
 ALGORITHM = "HS256"
  
