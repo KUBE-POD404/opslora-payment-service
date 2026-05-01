@@ -80,17 +80,16 @@ jobs:
     uses: ./.github/workflows/ci-docker-build.yaml
     secrets: inherit
 
-
   update-helm-test-values:
     name: Update payment test values in helm repo
     needs:
       - gate
       - docker-build
     if: ${{ needs.gate.outputs.should_build == 'true' && needs.docker-build.result == 'success' }}
-    uses: ./.github/workflows/update-helm-test.yaml
+    uses: ./.github/workflows/cd-helm-test.yaml
     with:
       helm_repo: KUBE-POD404/opslora-helm-charts
-      helm_branch: test/opslora-helm-test
+      helm_branch: refactor/opslora-helm
       values_file: opslora-helm/apps/payment/values-test.yaml
       image_tag: ${{ needs.docker-build.outputs.image_tag }}
       yaml_path: .image.tag
@@ -123,7 +122,5 @@ jobs:
             mail_from: ${{ secrets.MAIL_FROM }}
             mail_to: ${{ needs.get-email.outputs.email || secrets.MAIL_TO }}
             slack_webhook: ${{ secrets.SLACK_INCOMING_WEBHOOK }}
-            sonar_host_url: ${{ secrets.SONAR_HOST_URL }}
-            sonar_project_key: ${{ secrets.SONAR_PROJECT_KEY }}
             workflow_url: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
             report_url: ${{ needs.docker-build.outputs.report_url }}

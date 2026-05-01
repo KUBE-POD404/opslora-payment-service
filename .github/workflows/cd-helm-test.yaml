@@ -1,4 +1,4 @@
-name: Update Helm Values
+name: Update Helm Payment Service Values
 
 on:
   workflow_call:
