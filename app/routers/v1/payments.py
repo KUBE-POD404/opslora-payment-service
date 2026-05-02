@@ -17,11 +17,6 @@ router = APIRouter(prefix="/payments", tags=["Payments"])
 
 DBSession = Annotated[Session, Depends(get_db)]
 
-@router.get("/health")
-def health():
-    return {"status": "ok"}
-
-
 @router.post("/pay", response_model=PaymentResponse, status_code=status.HTTP_201_CREATED)
 def create_payment_api(
     payload: PaymentCreate,

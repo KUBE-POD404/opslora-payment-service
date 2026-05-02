@@ -5,7 +5,7 @@ from starlette.exceptions import HTTPException as StarletteHTTPException
 from app.core.middleware import RequestContextMiddleware
 from app.core.config import settings
 
-from app.routers.v1 import payments
+from app.routers.v1 import health, payments
 
 from app.exceptions.custom_exceptions import AppException
 from app.exceptions.handlers import (
@@ -41,4 +41,5 @@ app.add_exception_handler(StarletteHTTPException, http_exception_handler)
 app.add_exception_handler(RequestValidationError, validation_exception_handler)
 app.add_exception_handler(Exception, generic_exception_handler)
 
+app.include_router(health.router, prefix="/api/v1")
 app.include_router(payments.router, prefix="/api/v1")
