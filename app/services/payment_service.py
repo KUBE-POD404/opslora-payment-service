@@ -49,7 +49,11 @@ def fetch_invoice(invoice_id: int, auth_header: str):
         )
         raise ConflictException("Failed to fetch invoice")
 
-    return response.json()
+    data = response.json()
+    if data.get("id") is None or data.get("status") in (None, "") or data.get("total") is None:
+        raise ConflictException("Invalid invoice service response")
+
+    return data
 
 
 # -----------------------------
