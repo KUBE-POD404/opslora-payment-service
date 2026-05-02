@@ -74,11 +74,17 @@ jobs:
     if: ${{ needs.gate.outputs.should_build == 'true' }}
     uses: ./.github/workflows/ci-test.yaml
 
+  migration-check:
+    needs: gate
+    if: ${{ needs.gate.outputs.should_build == 'true' }}
+    uses: ./.github/workflows/ci-migration.yaml
+
   docker-build:
     needs:
       - gate
       - unit-tests
-    if: ${{ needs.gate.outputs.should_build == 'true' && needs.unit-tests.result == 'success' }}
+      - migration-check
+    if: ${{ needs.gate.outputs.should_build == 'true' && needs.unit-tests.result == 'success' && needs.migration-check.result == 'success' }}
     permissions:
       contents: read
       actions: read
@@ -112,8 +118,9 @@ jobs:
         - gate
         - get-email
         - unit-tests
+        - migration-check
         - docker-build
-      if: ${{ always() && needs.gate.outputs.should_build == 'true' && (needs.unit-tests.result == 'failure' || needs.docker-build.result == 'failure') }}
+      if: ${{ always() && needs.gate.outputs.should_build == 'true' && (needs.unit-tests.result == 'failure' || needs.migration-check.result == 'failure' || needs.docker-build.result == 'failure') }}
       steps:
         - name: Checkout code
           uses: actions/checkout@v4
@@ -133,6 +140,22 @@ jobs:
             slack_webhook: ${{ secrets.SLACK_INCOMING_WEBHOOK }}
             workflow_url: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
             report_url: ${{ needs.unit-tests.outputs.report_url }}
+
+        - name: Send migration check notification
+          if: ${{ needs.migration-check.result == 'failure' }}
+          uses: ./.github/actions/notification-action
+          with:
+            pipeline_name: ${{ github.workflow }}
+            repository_name: ${{ github.repository }}
+            failure_reason: ${{ needs.migration-check.outputs.failure_stage }}
+            author: ${{ needs.get-email.outputs.name || github.actor }}
+            smtp_username: ${{ secrets.SMTP_USERNAME }}
+            smtp_password: ${{ secrets.SMTP_PASSWORD }}
+            mail_from: ${{ secrets.MAIL_FROM }}
+            mail_to: ${{ needs.get-email.outputs.email || secrets.MAIL_TO }}
+            slack_webhook: ${{ secrets.SLACK_INCOMING_WEBHOOK }}
+            workflow_url: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+            report_url: ${{ needs.migration-check.outputs.report_url }}
 
         - name: Send image pipeline notification
           if: ${{ needs.docker-build.result == 'failure' }}
