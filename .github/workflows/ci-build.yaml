@@ -69,9 +69,16 @@ jobs:
 
           echo "should_build=$SHOULD_BUILD" >> "$GITHUB_OUTPUT"
 
-  docker-build:
+  unit-tests:
     needs: gate
     if: ${{ needs.gate.outputs.should_build == 'true' }}
+    uses: ./.github/workflows/ci-test.yaml
+
+  docker-build:
+    needs:
+      - gate
+      - unit-tests
+    if: ${{ needs.gate.outputs.should_build == 'true' && needs.unit-tests.result == 'success' }}
     permissions:
       contents: read
       actions: read
@@ -104,13 +111,31 @@ jobs:
       needs:
         - gate
         - get-email
+        - unit-tests
         - docker-build
-      if: ${{ always() && needs.gate.outputs.should_build == 'true' && needs.docker-build.result == 'failure' }}
+      if: ${{ always() && needs.gate.outputs.should_build == 'true' && (needs.unit-tests.result == 'failure' || needs.docker-build.result == 'failure') }}
       steps:
         - name: Checkout code
           uses: actions/checkout@v4
 
+        - name: Send unit test notification
+          if: ${{ needs.unit-tests.result == 'failure' }}
+          uses: ./.github/actions/notification-action
+          with:
+            pipeline_name: ${{ github.workflow }}
+            repository_name: ${{ github.repository }}
+            failure_reason: ${{ needs.unit-tests.outputs.failure_stage }}
+            author: ${{ needs.get-email.outputs.name || github.actor }}
+            smtp_username: ${{ secrets.SMTP_USERNAME }}
+            smtp_password: ${{ secrets.SMTP_PASSWORD }}
+            mail_from: ${{ secrets.MAIL_FROM }}
+            mail_to: ${{ needs.get-email.outputs.email || secrets.MAIL_TO }}
+            slack_webhook: ${{ secrets.SLACK_INCOMING_WEBHOOK }}
+            workflow_url: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+            report_url: ${{ needs.unit-tests.outputs.report_url }}
+
         - name: Send image pipeline notification
+          if: ${{ needs.docker-build.result == 'failure' }}
           uses: ./.github/actions/notification-action
           with:
             pipeline_name: ${{ github.workflow }}
