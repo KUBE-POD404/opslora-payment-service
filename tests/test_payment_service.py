@@ -7,7 +7,7 @@ from app.services import payment_service
 
 
 def test_partial_and_full_payment_status_updates(db_session, monkeypatch):
-    invoice = {"id": 1, "total": "100.00", "status": "UNPAID"}
+    invoice = {"id": 1, "customer_id": 101, "total": "100.00", "status": "UNPAID"}
     statuses = []
 
     def fetch_invoice(invoice_id, auth_header):
@@ -26,6 +26,10 @@ def test_partial_and_full_payment_status_updates(db_session, monkeypatch):
     )
 
     assert first.amount == Decimal("40.00")
+    assert first.customer_id == 101
+    assert first.currency == "INR"
+    assert first.payment_type == "MANUAL"
+    assert first.status == "SUCCEEDED"
     assert second.amount == Decimal("60.00")
     assert statuses == ["PARTIALLY_PAID", "PAID"]
 
@@ -34,7 +38,7 @@ def test_payment_cannot_exceed_invoice_total(db_session, monkeypatch):
     monkeypatch.setattr(
         payment_service,
         "fetch_invoice",
-        lambda invoice_id, auth_header: {"id": 1, "total": "100.00", "status": "UNPAID"},
+        lambda invoice_id, auth_header: {"id": 1, "customer_id": 101, "total": "100.00", "status": "UNPAID"},
     )
     monkeypatch.setattr(payment_service, "update_invoice_status", lambda *args, **kwargs: None)
     payment_service.create_payment(db_session, 1, Decimal("80.00"), "UPI", 1, 10, "Bearer token")
@@ -43,15 +47,22 @@ def test_payment_cannot_exceed_invoice_total(db_session, monkeypatch):
         payment_service.create_payment(db_session, 1, Decimal("30.00"), "UPI", 1, 10, "Bearer token")
 
 
-def test_refund_requires_fully_paid_invoice(db_session, monkeypatch):
+def test_refund_requires_paid_invoice(db_session, monkeypatch):
     monkeypatch.setattr(
         payment_service,
         "fetch_invoice",
-        lambda invoice_id, auth_header: {"id": 1, "total": "100.00", "status": "PARTIALLY_PAID"},
+        lambda invoice_id, auth_header: {"id": 1, "customer_id": 101, "total": "100.00", "status": "UNPAID"},
+    )
+    monkeypatch.setattr(payment_service, "update_invoice_status", lambda *args, **kwargs: None)
+    payment = payment_service.create_payment(db_session, 1, Decimal("50.00"), "UPI", 1, 10, "Bearer token")
+    monkeypatch.setattr(
+        payment_service,
+        "fetch_invoice",
+        lambda invoice_id, auth_header: {"id": 1, "customer_id": 101, "total": "100.00", "status": "UNPAID"},
     )
 
     with pytest.raises(ConflictException):
-        payment_service.refund_invoice(db_session, 1, 1, "Bearer token")
+        payment_service.refund_payment(db_session, payment.id, 1, 10, "Bearer token")
 
 
 def test_refund_updates_invoice_status_when_fully_paid(db_session, monkeypatch):
@@ -59,7 +70,7 @@ def test_refund_updates_invoice_status_when_fully_paid(db_session, monkeypatch):
     monkeypatch.setattr(
         payment_service,
         "fetch_invoice",
-        lambda invoice_id, auth_header: {"id": 1, "total": "100.00", "status": "UNPAID"},
+        lambda invoice_id, auth_header: {"id": 1, "customer_id": 101, "total": "100.00", "status": "UNPAID"},
     )
     monkeypatch.setattr(payment_service, "update_invoice_status", lambda *args: statuses.append(args[1]))
     payment_service.create_payment(db_session, 1, Decimal("100.00"), "UPI", 1, 10, "Bearer token")
@@ -67,9 +78,41 @@ def test_refund_updates_invoice_status_when_fully_paid(db_session, monkeypatch):
     monkeypatch.setattr(
         payment_service,
         "fetch_invoice",
-        lambda invoice_id, auth_header: {"id": 1, "total": "100.00", "status": "PAID"},
+        lambda invoice_id, auth_header: {"id": 1, "customer_id": 101, "total": "100.00", "status": "PAID"},
     )
-    refund = payment_service.refund_invoice(db_session, 1, 1, "Bearer token")
+    refund = payment_service.refund_payment(db_session, 1, 1, 10, "Bearer token")
 
-    assert refund == {"invoice_id": 1, "status": "REFUNDED"}
+    assert refund.invoice_id == 1
+    assert refund.payment_id == 1
+    assert refund.amount == Decimal("100.00")
+    assert refund.status == "SUCCEEDED"
     assert statuses[-1] == "REFUNDED"
+
+
+def test_partial_refund_marks_invoice_partially_paid(db_session, monkeypatch):
+    statuses = []
+    monkeypatch.setattr(
+        payment_service,
+        "fetch_invoice",
+        lambda invoice_id, auth_header: {"id": 1, "customer_id": 101, "total": "100.00", "status": "UNPAID"},
+    )
+    monkeypatch.setattr(payment_service, "update_invoice_status", lambda *args: statuses.append(args[1]))
+    payment = payment_service.create_payment(db_session, 1, Decimal("100.00"), "ONLINE", 1, 10, "Bearer token")
+
+    monkeypatch.setattr(
+        payment_service,
+        "fetch_invoice",
+        lambda invoice_id, auth_header: {"id": 1, "customer_id": 101, "total": "100.00", "status": "PAID"},
+    )
+    refund = payment_service.refund_payment(
+        db_session,
+        payment.id,
+        1,
+        10,
+        "Bearer token",
+        amount=Decimal("25.00"),
+        reason="Customer returned one item",
+    )
+
+    assert refund.amount == Decimal("25.00")
+    assert statuses[-1] == "PARTIALLY_PAID"

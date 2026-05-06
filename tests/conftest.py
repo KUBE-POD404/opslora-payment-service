@@ -11,7 +11,7 @@ os.environ.setdefault("INVOICE_SERVICE_URL", "http://invoice-service:3000")
 os.environ.setdefault("API_VERSION", "/api/v1")
 
 from app.database import Base  # noqa: E402
-from app.models.payment import Payment  # noqa: F401,E402
+from app.models.payment import Payment, PaymentTransaction, Refund  # noqa: F401,E402
 
 
 @pytest.fixture()
