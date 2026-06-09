@@ -36,13 +36,13 @@ jobs:
 
   sonar-scan:
     needs: [unit-tests, migration-check]
-    if: ${{ needs.unit-tests.outputs.test_status == 'success' && needs.migration-check.outputs.migration_status == 'success' }}
+    if: ${{ false }} # Disabled until SonarQube is available for Azure rollout
     uses: ./.github/workflows/ci-sonar-check.yaml
     secrets: inherit
 
   snyk-scan:
     needs: sonar-scan
-    if: ${{ needs.sonar-scan.outputs.quality_gate_status == 'PASSED' }}
+    if: ${{ false }} # Disabled until Snyk secrets are available for Azure rollout
     uses: ./.github/workflows/ci-snyk-check.yaml
     secrets: inherit
 

@@ -102,7 +102,7 @@ jobs:
     uses: ./.github/workflows/cd-helm-test.yaml
     with:
       helm_repo: KUBE-POD404/opslora-helm-charts
-      helm_branch: refactor/opslora-helm
+      helm_branch: azure/agic-application-gateway
       values_file: opslora-helm/apps/payment/values-test.yaml
       image_tag: ${{ needs.docker-build.outputs.image_tag }}
       yaml_path: .image.tag
