@@ -1,0 +1,116 @@
+name: Azure Test Build and Deploy
+
+on:
+  push:
+    branches:
+      - refactor/saas-foundation-inventory
+  workflow_dispatch:
+    inputs:
+      image_tag:
+        description: "Optional image tag. Defaults to azure-test-<run-number>-<sha>."
+        required: false
+        type: string
+      deploy:
+        description: "Deploy to AKS after pushing the image."
+        required: true
+        default: true
+        type: boolean
+
+permissions:
+  contents: read
+  packages: write
+  id-token: write
+
+env:
+  IMAGE_NAME: ghcr.io/kube-pod404/opslora-payment-service
+  HELM_REPO: KUBE-POD404/opslora-helm-charts
+  HELM_REF: azure/agic-application-gateway
+  CHART_PATH: opslora-helm/apps/payment
+  RELEASE_NAME: payment-service-azure-test
+  NAMESPACE: opslora-app-ns
+  MIGRATE_JOB: payment-service-migrate
+  AZURE_KEY_VAULT_ENABLED: "false"
+
+jobs:
+  build-deploy:
+    runs-on: ubuntu-latest
+    environment: azure-test
+
+    steps:
+      - name: Checkout service
+        uses: actions/checkout@v4
+
+      - name: Resolve image tag
+        id: meta
+        shell: bash
+        run: |
+          set -euo pipefail
+          if [ -n "${{ github.event.inputs.image_tag || '' }}" ]; then
+            tag="${{ github.event.inputs.image_tag }}"
+          else
+            tag="azure-test-${{ github.run_number }}-${GITHUB_SHA::7}"
+          fi
+          echo "tag=${tag}" >> "$GITHUB_OUTPUT"
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Login to GHCR
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Build and push image
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          push: true
+          tags: ${{ env.IMAGE_NAME }}:${{ steps.meta.outputs.tag }}
+
+      - name: Checkout Helm charts
+        if: ${{ github.event.inputs.deploy != 'false' }}
+        uses: actions/checkout@v4
+        with:
+          repository: ${{ env.HELM_REPO }}
+          ref: ${{ env.HELM_REF }}
+          token: ${{ secrets.HELM_REPO_TOKEN || github.token }}
+          path: helm-repo
+
+      - name: Azure login
+        if: ${{ github.event.inputs.deploy != 'false' }}
+        uses: azure/login@v2
+        with:
+          client-id: ${{ secrets.AZURE_TEST_CLIENT_ID }}
+          tenant-id: ${{ secrets.AZURE_TENANT_ID }}
+          subscription-id: ${{ secrets.AZURE_TEST_SUBSCRIPTION_ID }}
+
+      - name: Set AKS context
+        if: ${{ github.event.inputs.deploy != 'false' }}
+        uses: azure/aks-set-context@v4
+        with:
+          resource-group: rg-opslora-test-aks-cin
+          cluster-name: aks-opslora-test-cin-001
+
+      - name: Set up Helm
+        if: ${{ github.event.inputs.deploy != 'false' }}
+        uses: azure/setup-helm@v4
+
+      - name: Deploy to AKS
+        if: ${{ github.event.inputs.deploy != 'false' }}
+        working-directory: helm-repo
+        shell: bash
+        run: |
+          set -euo pipefail
+          kubectl create namespace "${NAMESPACE}" --dry-run=client -o yaml | kubectl apply -f -
+          if [ -n "${MIGRATE_JOB}" ]; then
+            kubectl delete job "${MIGRATE_JOB}" -n "${NAMESPACE}" --ignore-not-found
+          fi
+          helm upgrade --install "${RELEASE_NAME}" "${CHART_PATH}" \
+            --namespace "${NAMESPACE}" \
+            -f "${CHART_PATH}/values.yaml" \
+            -f "${CHART_PATH}/values-azure-test.yaml" \
+            --set image.tag="${{ steps.meta.outputs.tag }}" \
+            --set azureKeyVault.enabled="${AZURE_KEY_VAULT_ENABLED}" \
+            --wait --timeout 5m
