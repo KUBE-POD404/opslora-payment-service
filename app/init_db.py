@@ -1,5 +1,5 @@
 from app.database import engine, Base
-from app.models.payment import Payment
+from app.models.payment import Payment, PaymentTransaction, Refund
 
 def create_tables():
     Base.metadata.create_all(bind=engine)
