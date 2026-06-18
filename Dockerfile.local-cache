@@ -1,0 +1,9 @@
+FROM ghcr.io/kube-pod404/opslora-payment-service:azure-test-20260609-02
+
+WORKDIR /app
+
+COPY . .
+
+EXPOSE 3000
+
+CMD ["sh", "/app/docker-entrypoint.ec2.sh"]
