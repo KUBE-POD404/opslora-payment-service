@@ -89,8 +89,8 @@ jobs:
         with:
           repository: ${{ env.HELM_REPO }}
           ref: ${{ env.HELM_REF }}
-          token: ${{ secrets.HELM_REPO_TOKEN }}
           path: helm-repo
+          persist-credentials: false
 
       - name: Install yq
         if: ${{ github.event.inputs.deploy != 'false' }}
@@ -103,6 +103,8 @@ jobs:
       - name: Update Helm values
         if: ${{ github.event.inputs.deploy != 'false' }}
         working-directory: helm-repo
+        env:
+          HELM_REPO_TOKEN: ${{ secrets.HELM_REPO_TOKEN }}
         shell: bash
         run: |
           set -euo pipefail
@@ -115,7 +117,7 @@ jobs:
             echo "No Helm values changes to commit"
           else
             git commit -m "ci(payment): update azure test image to ${{ steps.meta.outputs.tag }}"
-            git push origin HEAD:${HELM_REF}
+            git push "https://x-access-token:${HELM_REPO_TOKEN}@github.com/${HELM_REPO}.git" HEAD:${HELM_REF}
           fi
 
       - name: Azure login
