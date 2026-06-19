@@ -29,7 +29,7 @@ env:
   RELEASE_NAME: payment-service-azure-test
   NAMESPACE: opslora-app-ns
   MIGRATE_JOB: payment-service-migrate
-  AZURE_KEY_VAULT_ENABLED: "false"
+  AZURE_KEY_VAULT_ENABLED: "true"
 
 jobs:
   build-deploy:
@@ -50,6 +50,7 @@ jobs:
           else
             tag="azure-test-${{ github.run_number }}-${GITHUB_SHA::7}"
           fi
+          echo "short_sha=${GITHUB_SHA::7}" >> "$GITHUB_OUTPUT"
           echo "tag=${tag}" >> "$GITHUB_OUTPUT"
 
       - name: Set up Docker Buildx
@@ -67,7 +68,9 @@ jobs:
         with:
           context: .
           push: true
-          tags: ${{ env.IMAGE_NAME }}:${{ steps.meta.outputs.tag }}
+          tags: |
+            ${{ env.IMAGE_NAME }}:${{ steps.meta.outputs.tag }}
+            ${{ env.IMAGE_NAME }}:${{ steps.meta.outputs.short_sha }}
 
       - name: Checkout Helm charts
         if: ${{ github.event.inputs.deploy != 'false' }}
@@ -77,6 +80,32 @@ jobs:
           ref: ${{ env.HELM_REF }}
           token: ${{ secrets.HELM_REPO_TOKEN || github.token }}
           path: helm-repo
+
+      - name: Install yq
+        if: ${{ github.event.inputs.deploy != 'false' }}
+        shell: bash
+        run: |
+          sudo wget -qO /usr/local/bin/yq https://github.com/mikefarah/yq/releases/latest/download/yq_linux_amd64
+          sudo chmod +x /usr/local/bin/yq
+          yq --version
+
+      - name: Update Helm values
+        if: ${{ github.event.inputs.deploy != 'false' }}
+        working-directory: helm-repo
+        shell: bash
+        run: |
+          set -euo pipefail
+          values_file="${CHART_PATH}/values-azure-test.yaml"
+          yq -i '.image.tag = "${{ steps.meta.outputs.tag }}"' "$values_file"
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add "$values_file"
+          if git diff --cached --quiet; then
+            echo "No Helm values changes to commit"
+          else
+            git commit -m "ci(payment): update azure test image to ${{ steps.meta.outputs.tag }}"
+            git push origin HEAD:${HELM_REF}
+          fi
 
       - name: Azure login
         if: ${{ github.event.inputs.deploy != 'false' }}
