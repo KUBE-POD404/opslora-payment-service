@@ -72,13 +72,24 @@ jobs:
             ${{ env.IMAGE_NAME }}:${{ steps.meta.outputs.tag }}
             ${{ env.IMAGE_NAME }}:${{ steps.meta.outputs.short_sha }}
 
+      - name: Check Helm repo token
+        if: ${{ github.event.inputs.deploy != 'false' }}
+        shell: bash
+        env:
+          HELM_REPO_TOKEN: ${{ secrets.HELM_REPO_TOKEN }}
+        run: |
+          if [ -z "${HELM_REPO_TOKEN}" ]; then
+            echo "Missing HELM_REPO_TOKEN. Add a token with read/write access to KUBE-POD404/opslora-helm-charts." >&2
+            exit 1
+          fi
+
       - name: Checkout Helm charts
         if: ${{ github.event.inputs.deploy != 'false' }}
         uses: actions/checkout@v4
         with:
           repository: ${{ env.HELM_REPO }}
           ref: ${{ env.HELM_REF }}
-          token: ${{ secrets.HELM_REPO_TOKEN || github.token }}
+          token: ${{ secrets.HELM_REPO_TOKEN }}
           path: helm-repo
 
       - name: Install yq
