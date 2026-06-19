@@ -26,7 +26,7 @@ env:
   HELM_REPO: KUBE-POD404/opslora-helm-charts
   HELM_REF: azure/agic-application-gateway
   CHART_PATH: opslora-helm/apps/payment
-  RELEASE_NAME: payment-service-azure-test
+  RELEASE_NAME: payment
   NAMESPACE: opslora-app-ns
   MIGRATE_JOB: payment-service-migrate
   AZURE_KEY_VAULT_ENABLED: "true"
@@ -117,6 +117,18 @@ jobs:
             echo "No Helm values changes to commit"
           else
             git commit -m "ci(payment): update azure test image to ${{ steps.meta.outputs.tag }}"
+            for attempt in 1 2 3; do
+              if git push "https://x-access-token:${HELM_REPO_TOKEN}@github.com/${HELM_REPO}.git" HEAD:${HELM_REF}; then
+                exit 0
+              fi
+              echo "Helm branch moved, rebasing before retry ${attempt}..."
+              git pull --rebase origin "${HELM_REF}"
+              yq -i '.image.tag = "${{ steps.meta.outputs.tag }}"' "$values_file"
+              git add "$values_file"
+              if ! git diff --cached --quiet; then
+                git commit --amend --no-edit
+              fi
+            done
             git push "https://x-access-token:${HELM_REPO_TOKEN}@github.com/${HELM_REPO}.git" HEAD:${HELM_REF}
           fi
 
