@@ -36,13 +36,11 @@ jobs:
 
   sonar-scan:
     needs: [unit-tests, migration-check]
-    if: ${{ false }} # Disabled until SonarQube is available for Azure rollout
     uses: ./.github/workflows/ci-sonar-check.yaml
     secrets: inherit
 
   snyk-scan:
     needs: sonar-scan
-    if: ${{ false }} # Disabled until Snyk secrets are available for Azure rollout
     uses: ./.github/workflows/ci-snyk-check.yaml
     secrets: inherit
 
@@ -104,7 +102,7 @@ jobs:
           mail_to: ${{ needs.get-email.outputs.email }}
           slack_webhook: ${{ secrets.SLACK_INCOMING_WEBHOOK }}
           workflow_url: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
-          report_url: ${{ secrets.SONAR_HOST_URL }}/dashboard?id=${{ secrets.SONAR_PROJECT_KEY }}
+          report_url: https://sonarcloud.io/dashboard?id=${{ vars.SONAR_PROJECT_KEY || github.event.repository.name }}
 
       - name: Snyk Notification
         if: ${{ needs.snyk-scan.outputs.snyk_status == 'failure' }}
