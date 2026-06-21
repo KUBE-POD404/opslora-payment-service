@@ -1,13 +1,17 @@
 name: Azure Test Build and Deploy
 
 on:
-  push:
-    branches:
-      - refactor/saas-foundation-inventory
+  # Old push-triggered Azure test deploy is intentionally disabled.
+  # Final service delivery should use:
+  # PR to main -> approved review + build label -> ACR image -> Helm values -> ArgoCD sync.
+  # Keep this workflow manual-only for bootstrap/break-glass testing.
+  # push:
+  #   branches:
+  #     - refactor/saas-foundation-inventory
   workflow_dispatch:
     inputs:
       image_tag:
-        description: "Optional image tag. Defaults to azure-test-<run-number>-<sha>."
+        description: "Optional immutable image tag. Defaults to azure-test-<run-number>-<sha>."
         required: false
         type: string
       deploy:
@@ -18,11 +22,11 @@ on:
 
 permissions:
   contents: read
-  packages: write
   id-token: write
 
 env:
-  IMAGE_NAME: ghcr.io/kube-pod404/opslora-payment-service
+  ACR_NAME: ${{ vars.AZURE_TEST_ACR_NAME }}
+  IMAGE_REPOSITORY: opslora-payment-service
   HELM_REPO: KUBE-POD404/opslora-helm-charts
   HELM_REF: azure/agic-application-gateway
   CHART_PATH: opslora-helm/apps/payment
@@ -40,28 +44,44 @@ jobs:
       - name: Checkout service
         uses: actions/checkout@v4
 
-      - name: Resolve image tag
+      - name: Azure login
+        uses: azure/login@v2
+        with:
+          client-id: ${{ secrets.AZURE_TEST_CLIENT_ID }}
+          tenant-id: ${{ secrets.AZURE_TENANT_ID }}
+          subscription-id: ${{ secrets.AZURE_TEST_SUBSCRIPTION_ID }}
+
+      - name: Resolve ACR image metadata
         id: meta
         shell: bash
         run: |
           set -euo pipefail
+          if [ -z "${ACR_NAME}" ]; then
+            echo "Missing GitHub environment variable AZURE_TEST_ACR_NAME." >&2
+            exit 1
+          fi
+          login_server="$(az acr show --name "${ACR_NAME}" --query loginServer -o tsv)"
+          if [ -z "$login_server" ]; then
+            echo "Could not resolve ACR login server for ${ACR_NAME}." >&2
+            exit 1
+          fi
           if [ -n "${{ github.event.inputs.image_tag || '' }}" ]; then
             tag="${{ github.event.inputs.image_tag }}"
           else
             tag="azure-test-${{ github.run_number }}-${GITHUB_SHA::7}"
           fi
+          image="$login_server/${IMAGE_REPOSITORY}"
           echo "short_sha=${GITHUB_SHA::7}" >> "$GITHUB_OUTPUT"
           echo "tag=${tag}" >> "$GITHUB_OUTPUT"
+          echo "login_server=${login_server}" >> "$GITHUB_OUTPUT"
+          echo "image=${image}" >> "$GITHUB_OUTPUT"
 
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@v3
 
-      - name: Login to GHCR
-        uses: docker/login-action@v3
-        with:
-          registry: ghcr.io
-          username: ${{ github.actor }}
-          password: ${{ secrets.GITHUB_TOKEN }}
+      - name: Login to Azure Container Registry
+        shell: bash
+        run: az acr login --name "${ACR_NAME}"
 
       - name: Build and push image
         uses: docker/build-push-action@v6
@@ -69,8 +89,8 @@ jobs:
           context: .
           push: true
           tags: |
-            ${{ env.IMAGE_NAME }}:${{ steps.meta.outputs.tag }}
-            ${{ env.IMAGE_NAME }}:${{ steps.meta.outputs.short_sha }}
+            ${{ steps.meta.outputs.image }}:${{ steps.meta.outputs.tag }}
+            ${{ steps.meta.outputs.image }}:${{ steps.meta.outputs.short_sha }}
 
       - name: Check Helm repo token
         if: ${{ github.event.inputs.deploy != 'false' }}
@@ -109,6 +129,7 @@ jobs:
         run: |
           set -euo pipefail
           values_file="${CHART_PATH}/values-azure-test.yaml"
+          yq -i '.image.repository = "${{ steps.meta.outputs.image }}"' "$values_file"
           yq -i '.image.tag = "${{ steps.meta.outputs.tag }}"' "$values_file"
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
@@ -116,13 +137,14 @@ jobs:
           if git diff --cached --quiet; then
             echo "No Helm values changes to commit"
           else
-            git commit -m "ci(payment): update azure test image to ${{ steps.meta.outputs.tag }}"
+            git commit -m "ci(payment): update azure test ACR image to ${{ steps.meta.outputs.tag }}"
             for attempt in 1 2 3; do
               if git push "https://x-access-token:${HELM_REPO_TOKEN}@github.com/${HELM_REPO}.git" HEAD:${HELM_REF}; then
                 exit 0
               fi
               echo "Helm branch moved, rebasing before retry ${attempt}..."
               git pull --rebase origin "${HELM_REF}"
+              yq -i '.image.repository = "${{ steps.meta.outputs.image }}"' "$values_file"
               yq -i '.image.tag = "${{ steps.meta.outputs.tag }}"' "$values_file"
               git add "$values_file"
               if ! git diff --cached --quiet; then
@@ -131,14 +153,6 @@ jobs:
             done
             git push "https://x-access-token:${HELM_REPO_TOKEN}@github.com/${HELM_REPO}.git" HEAD:${HELM_REF}
           fi
-
-      - name: Azure login
-        if: ${{ github.event.inputs.deploy != 'false' }}
-        uses: azure/login@v2
-        with:
-          client-id: ${{ secrets.AZURE_TEST_CLIENT_ID }}
-          tenant-id: ${{ secrets.AZURE_TENANT_ID }}
-          subscription-id: ${{ secrets.AZURE_TEST_SUBSCRIPTION_ID }}
 
       - name: Set AKS context
         if: ${{ github.event.inputs.deploy != 'false' }}
@@ -165,6 +179,7 @@ jobs:
             --namespace "${NAMESPACE}" \
             -f "${CHART_PATH}/values.yaml" \
             -f "${CHART_PATH}/values-azure-test.yaml" \
+            --set image.repository="${{ steps.meta.outputs.image }}" \
             --set image.tag="${{ steps.meta.outputs.tag }}" \
             --set azureKeyVault.enabled="${AZURE_KEY_VAULT_ENABLED}" \
             --wait --timeout 5m

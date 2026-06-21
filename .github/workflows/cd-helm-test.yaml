@@ -23,10 +23,22 @@ on:
         required: true
         type: string
 
+      image_repository:
+        description: "Optional image repository to write, e.g. <acr-login-server>/<service>"
+        required: false
+        default: ""
+        type: string
+
       yaml_path:
-        description: "YAML path to update, e.g. .image.tag"
+        description: "YAML path to update for the image tag, e.g. .image.tag"
         required: false
         default: ".image.tag"
+        type: string
+
+      repository_yaml_path:
+        description: "YAML path to update for the image repository, e.g. .image.repository"
+        required: false
+        default: ".image.repository"
         type: string
 
       commit_message:
@@ -52,7 +64,6 @@ jobs:
           token: ${{ secrets.HELM_REPO_TOKEN }}
           path: helm-repo
 
-
       - name: Validate values file exists
         working-directory: helm-repo
         run: |
@@ -68,10 +79,16 @@ jobs:
         working-directory: helm-repo
         env:
           NEW_TAG: ${{ inputs.image_tag }}
+          IMAGE_REPOSITORY: ${{ inputs.image_repository }}
           YAML_PATH: ${{ inputs.yaml_path }}
+          REPOSITORY_YAML_PATH: ${{ inputs.repository_yaml_path }}
           VALUES_FILE: ${{ inputs.values_file }}
         run: |
+          set -euo pipefail
           yq -i "${YAML_PATH} = strenv(NEW_TAG)" "$VALUES_FILE"
+          if [ -n "${IMAGE_REPOSITORY}" ]; then
+            yq -i "${REPOSITORY_YAML_PATH} = strenv(IMAGE_REPOSITORY)" "$VALUES_FILE"
+          fi
           echo "Updated file:"
           cat "$VALUES_FILE"
 

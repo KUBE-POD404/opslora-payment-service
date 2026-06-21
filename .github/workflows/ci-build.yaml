@@ -13,6 +13,7 @@ concurrency:
 permissions:
   contents: read
   actions: read
+  id-token: write
   security-events: write
   packages: write
 
@@ -88,6 +89,7 @@ jobs:
     permissions:
       contents: read
       actions: read
+      id-token: write
       security-events: write
       packages: write
     uses: ./.github/workflows/ci-docker-build.yaml
@@ -103,10 +105,12 @@ jobs:
     with:
       helm_repo: KUBE-POD404/opslora-helm-charts
       helm_branch: azure/agic-application-gateway
-      values_file: opslora-helm/apps/payment/values-test.yaml
+      values_file: opslora-helm/apps/payment/values-azure-test.yaml
       image_tag: ${{ needs.docker-build.outputs.image_tag }}
+      image_repository: ${{ needs.docker-build.outputs.image_repository }}
       yaml_path: .image.tag
-      commit_message: "ci(payment): update test image tag to ${{ needs.docker-build.outputs.image_tag }}"
+      repository_yaml_path: .image.repository
+      commit_message: "ci(payment): update azure test ACR image to ${{ needs.docker-build.outputs.image_tag }}"
     secrets:
       HELM_REPO_TOKEN: ${{ secrets.HELM_REPO_TOKEN }}
 
