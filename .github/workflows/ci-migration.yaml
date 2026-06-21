@@ -21,22 +21,17 @@ jobs:
       mysql:
         image: mysql:8.0
         env:
-          MYSQL_ROOT_PASSWORD: root
+          MYSQL_ROOT_PASSWORD: ${{ secrets.CI_TEST_MYSQL_ROOT_PASSWORD }}
           MYSQL_DATABASE: opslora_test
           MYSQL_USER: opslora
-          MYSQL_PASSWORD: opslora
+          MYSQL_PASSWORD: ${{ secrets.CI_TEST_MYSQL_PASSWORD }}
         ports:
           - 3306:3306
         options: >-
-          --health-cmd="mysqladmin ping -h 127.0.0.1 -uopslora -popslora"
+          --health-cmd="mysqladmin ping -h 127.0.0.1 --silent"
           --health-interval=10s
           --health-timeout=5s
           --health-retries=10
-    env:
-      DATABASE_URL: mysql+pymysql://opslora:opslora@127.0.0.1:3306/opslora_test
-      JWT_SECRET_KEY: test-secret-key-that-is-long-enough
-      INVOICE_SERVICE_URL: http://invoice-service:3000
-      API_VERSION: /api/v1
 
     steps:
       - uses: actions/checkout@v4
@@ -57,6 +52,11 @@ jobs:
 
       - name: Run Alembic migrations
         id: migrate
+        env:
+          DATABASE_URL: ${{ secrets.CI_TEST_DATABASE_URL }}
+          JWT_SECRET_KEY: ${{ secrets.CI_TEST_JWT_SECRET_KEY }}
+          RABBITMQ_URL: ${{ secrets.CI_TEST_RABBITMQ_URL }}
+          ACCESS_TOKEN_EXPIRE_MINUTES: "30"
         run: alembic upgrade head
 
       - id: report
