@@ -21,10 +21,8 @@ jobs:
       mysql:
         image: mysql:8.0
         env:
-          MYSQL_ROOT_PASSWORD: ${{ secrets.CI_TEST_MYSQL_ROOT_PASSWORD }}
+          MYSQL_ALLOW_EMPTY_PASSWORD: "yes"
           MYSQL_DATABASE: opslora_test
-          MYSQL_USER: opslora
-          MYSQL_PASSWORD: ${{ secrets.CI_TEST_MYSQL_PASSWORD }}
         ports:
           - 3306:3306
         options: >-

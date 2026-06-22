@@ -33,6 +33,7 @@ jobs:
 
   migration-check:
     uses: ./.github/workflows/ci-migration.yaml
+    secrets: inherit
 
   sonar-scan:
     needs: [unit-tests, migration-check]

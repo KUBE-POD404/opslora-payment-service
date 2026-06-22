@@ -79,6 +79,7 @@ jobs:
     needs: gate
     if: ${{ needs.gate.outputs.should_build == 'true' }}
     uses: ./.github/workflows/ci-migration.yaml
+    secrets: inherit
 
   docker-build:
     needs:
