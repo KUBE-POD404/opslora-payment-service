@@ -1,4 +1,4 @@
-name: Customer Release Pipeline
+name: Payment Release Pipeline
 
 on:
   release:

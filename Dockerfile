@@ -1,4 +1,4 @@
-FROM dhi.io/python:3.13-dev AS builder
+FROM python:3.13-slim AS builder
 #using the 3.13-dev image to ensure we have the latest pip and venv modules
 WORKDIR /app
 #  Set the PATH to include the virtual environment's bin directory
@@ -12,7 +12,7 @@ RUN --mount=type=cache,target=/root/.cache/pip \
     /app/venv/bin/pip install -r requirements.txt
 
 
-FROM dhi.io/python:3.13.13
+FROM python:3.13-slim
 
 WORKDIR /app
 

@@ -1,19 +1,24 @@
-import os
+from typing import Any
+
 from dotenv import load_dotenv
 from sqlalchemy import create_engine
-from sqlalchemy.orm import sessionmaker, declarative_base
+from sqlalchemy.orm import declarative_base, sessionmaker
+
+from app.core.config import settings
 
 load_dotenv()
 
-DATABASE_URL = os.getenv("DATABASE_URL")
+engine_kwargs: dict[str, Any] = {"pool_pre_ping": settings.database_pool_pre_ping}
+if not settings.database_url.startswith("sqlite"):
+    engine_kwargs.update(
+        {
+            "pool_size": settings.database_pool_size,
+            "max_overflow": settings.database_max_overflow,
+            "pool_recycle": settings.database_pool_recycle_seconds,
+        }
+    )
 
-if not DATABASE_URL:
-    raise RuntimeError("DATABASE_URL not set")
-
-engine = create_engine(
-    DATABASE_URL,
-    pool_pre_ping=True,
-)
+engine = create_engine(settings.database_url, **engine_kwargs)
 
 SessionLocal = sessionmaker(
     bind=engine,
@@ -22,6 +27,7 @@ SessionLocal = sessionmaker(
 )
 
 Base = declarative_base()
+
 
 def get_db():
     db = SessionLocal()
