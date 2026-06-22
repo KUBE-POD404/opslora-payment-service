@@ -33,6 +33,27 @@ jobs:
             exit 1
           fi
 
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.13"
+          cache: pip
+          cache-dependency-path: |
+            requirements.txt
+            requirements-dev.txt
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip install -r requirements-dev.txt
+
+      - name: Generate coverage report
+        env:
+          DATABASE_URL: "sqlite:///:memory:"
+          JWT_SECRET_KEY: test-secret-key-that-is-long-enough
+          INVOICE_SERVICE_URL: http://invoice-service:3000
+          API_VERSION: /api/v1
+        run: python -m pytest --cov=app --cov-report=xml
+
       - name: Cache SonarCloud scanner
         uses: actions/cache@v4
         with:

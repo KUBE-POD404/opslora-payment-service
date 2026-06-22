@@ -26,10 +26,10 @@ class Payment(Base):
     metadata_json = Column(Text, nullable=True)
     created_by_user_id = Column(Integer, nullable=True)
     received_by_user_id = Column(Integer, nullable=True)
-    paid_at = Column(DateTime(timezone=True), default=datetime.now(timezone.utc))
+    paid_at = Column(DateTime(timezone=True), default=lambda: datetime.now(timezone.utc))
     note = Column(Text, nullable=True)
-    created_at = Column(DateTime(timezone=True), default=datetime.now(timezone.utc))
-    updated_at = Column(DateTime(timezone=True), default=datetime.now(timezone.utc))
+    created_at = Column(DateTime(timezone=True), default=lambda: datetime.now(timezone.utc))
+    updated_at = Column(DateTime(timezone=True), default=lambda: datetime.now(timezone.utc))
 
     __table_args__ = (
         CheckConstraint("amount > 0", name="check_payment_amount_positive"),
@@ -62,7 +62,7 @@ class PaymentTransaction(Base):
     provider = Column(String(50), nullable=True)
     provider_event_id = Column(String(150), nullable=True)
     raw_payload_json = Column(Text, nullable=True)
-    created_at = Column(DateTime(timezone=True), default=datetime.now(timezone.utc))
+    created_at = Column(DateTime(timezone=True), default=lambda: datetime.now(timezone.utc))
 
     __table_args__ = (
         CheckConstraint(
@@ -89,8 +89,8 @@ class Refund(Base):
     reason = Column(Text, nullable=True)
     gateway_refund_id = Column(String(150), nullable=True)
     refunded_by_user_id = Column(Integer, nullable=True)
-    refunded_at = Column(DateTime(timezone=True), default=datetime.now(timezone.utc))
-    created_at = Column(DateTime(timezone=True), default=datetime.now(timezone.utc))
+    refunded_at = Column(DateTime(timezone=True), default=lambda: datetime.now(timezone.utc))
+    created_at = Column(DateTime(timezone=True), default=lambda: datetime.now(timezone.utc))
 
     __table_args__ = (
         CheckConstraint("amount > 0", name="check_refund_amount_positive"),
