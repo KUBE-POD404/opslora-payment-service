@@ -6,71 +6,102 @@ on:
 
 permissions:
   contents: read
-  packages: write
+  id-token: write
+  actions: read
 
 jobs:
   promote:
+    name: Promote payment release to Azure prod
     runs-on: ubuntu-latest
+    environment: azure-prod
+
+    env:
+      SERVICE: payment
+      IMAGE_REPOSITORY: opslora-payment-service
+      PROD_ACR_NAME: ${{ vars.AZURE_PROD_ACR_NAME }}
+      PROD_ACR_LOGIN_SERVER: ${{ vars.AZURE_PROD_ACR_LOGIN_SERVER }}
+      TEST_ACR_RESOURCE_ID: ${{ vars.AZURE_TEST_ACR_RESOURCE_ID }}
 
     steps:
-      - id: version
+      - name: Validate release tag
+        id: version
+        shell: bash
         run: |
+          set -euo pipefail
           TAG='${{ github.event.release.tag_name }}'
           REGEX='^v[0-9]+\.[0-9]+\.[0-9]+(-((alpha|beta|rc)\.[0-9]+))?$'
 
           if [[ ! "$TAG" =~ $REGEX ]]; then
-            echo "Invalid tag format: $TAG"
+            echo "Invalid tag format: $TAG" >&2
             exit 1
           fi
 
           echo "version=$TAG" >> "$GITHUB_OUTPUT"
-
-      - name: Login to GHCR
-        uses: docker/login-action@v3
-        with:
-          registry: ghcr.io
-          username: ${{ github.actor }}
-          password: ${{ secrets.GITHUB_TOKEN }}
 
       - name: Checkout code
         uses: actions/checkout@v4
         with:
           fetch-depth: 0
 
-      - id: image
+      - name: Resolve release commit
+        id: sha
+        shell: bash
         run: |
-          OWNER=$(echo "${{ github.repository_owner }}" | tr '[:upper:]' '[:lower:]')
-          REPO=$(echo "${{ github.event.repository.name }}" | tr '[:upper:]' '[:lower:]')
-
-          IMAGE=ghcr.io/$OWNER/$REPO
-          echo "image=$IMAGE" >> $GITHUB_OUTPUT
-
-          echo "Using image: $IMAGE"
-
-      - id: sha
-        run: |
+          set -euo pipefail
           TAG='${{ github.event.release.tag_name }}'
-
           SHA=$(git rev-list -n 1 "$TAG")
           SHORT_SHA="${SHA::7}"
 
-          echo "sha=$SHORT_SHA" >> "$GITHUB_OUTPUT"
+          echo "sha=$SHA" >> "$GITHUB_OUTPUT"
+          echo "short_sha=$SHORT_SHA" >> "$GITHUB_OUTPUT"
+          echo "Resolved tag $TAG -> commit $SHA -> short $SHORT_SHA"
 
-          echo "Resolved tag $TAG → commit $SHA → short $SHORT_SHA"
+      - name: Azure login to prod
+        uses: azure/login@v2
+        with:
+          client-id: ${{ secrets.AZURE_PROD_CLIENT_ID }}
+          tenant-id: ${{ secrets.AZURE_TENANT_ID }}
+          subscription-id: ${{ secrets.AZURE_PROD_SUBSCRIPTION_ID }}
 
-      - name: Promote image
+      - name: Import tested image into prod ACR
+        shell: bash
+        env:
+          VERSION: ${{ steps.version.outputs.version }}
+          SHORT_SHA: ${{ steps.sha.outputs.short_sha }}
         run: |
-          IMAGE=${{ steps.image.outputs.image }}
-          SHA=${{ steps.sha.outputs.sha }}
-          VERSION=${{ steps.version.outputs.version }}
+          set -euo pipefail
 
-          echo "Pulling image: $IMAGE:$SHA"
-          docker pull $IMAGE:$SHA
-
-          echo "Tagging image: $IMAGE:$VERSION"
-          docker tag $IMAGE:$SHA $IMAGE:$VERSION
-
-          echo "Pushing image with retry..."
-          for i in 1 2 3; do
-            docker push $IMAGE:$VERSION && break || sleep 5
+          for required in PROD_ACR_NAME PROD_ACR_LOGIN_SERVER TEST_ACR_RESOURCE_ID IMAGE_REPOSITORY VERSION SHORT_SHA; do
+            if [ -z "${!required}" ]; then
+              echo "Missing required value: $required" >&2
+              exit 1
+            fi
           done
+
+          echo "Importing tested image from test ACR: $IMAGE_REPOSITORY:$SHORT_SHA"
+          echo "Publishing prod image: $PROD_ACR_LOGIN_SERVER/$IMAGE_REPOSITORY:$VERSION"
+
+          az acr import             --name "$PROD_ACR_NAME"             --source "$IMAGE_REPOSITORY:$SHORT_SHA"             --registry "$TEST_ACR_RESOURCE_ID"             --image "$IMAGE_REPOSITORY:$VERSION"             --image "$IMAGE_REPOSITORY:$SHORT_SHA"             --force
+
+          found=$(az acr repository show-tags             --name "$PROD_ACR_NAME"             --repository "$IMAGE_REPOSITORY"             --query "[?@=='$VERSION'] | [0]"             -o tsv)
+
+          if [ "$found" != "$VERSION" ]; then
+            echo "Prod ACR tag verification failed for $IMAGE_REPOSITORY:$VERSION" >&2
+            exit 1
+          fi
+
+      - name: Open Helm prod promotion PR
+        shell: bash
+        env:
+          GH_TOKEN: ${{ secrets.HELM_REPO_TOKEN }}
+          VERSION: ${{ steps.version.outputs.version }}
+        run: |
+          set -euo pipefail
+          if [ -z "$GH_TOKEN" ]; then
+            echo "Missing HELM_REPO_TOKEN secret" >&2
+            exit 1
+          fi
+
+          gh workflow run 'Promote Azure Prod Image'             -R KUBE-POD404/opslora-helm-charts             --ref main             -f service="$SERVICE"             -f image_tag="$VERSION"             -f image_repository="$PROD_ACR_LOGIN_SERVER/$IMAGE_REPOSITORY"             -f base_branch="main"
+
+          echo "Dispatched Helm prod promotion for $SERVICE:$VERSION"
