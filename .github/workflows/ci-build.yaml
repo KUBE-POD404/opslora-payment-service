@@ -29,10 +29,32 @@ jobs:
           fetch-depth: 0
 
       - id: author
+        env:
+          PR_HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+          PR_MERGE_SHA: ${{ github.event.pull_request.merge_commit_sha }}
+          PR_USER_LOGIN: ${{ github.event.pull_request.user.login }}
         run: |
-          SHA="${{ github.event.pull_request.head.sha }}"
-          EMAIL=$(git show -s --format='%ae' "$SHA")
-          NAME=$(git show -s --format='%an' "$SHA")
+          set -euo pipefail
+          SHA="$PR_HEAD_SHA"
+
+          # pull_request.closed can run after squash merge and source-branch
+          # deletion, so the PR head object may not exist in checkout. Try to
+          # fetch it, then fall back to the merge commit or PR actor metadata.
+          if [ -n "${SHA:-}" ] && ! git cat-file -e "$SHA^{commit}" 2>/dev/null; then
+            git fetch --no-tags --depth=1 origin "$SHA" || true
+          fi
+
+          if [ -n "${SHA:-}" ] && git cat-file -e "$SHA^{commit}" 2>/dev/null; then
+            EMAIL=$(git show -s --format='%ae' "$SHA")
+            NAME=$(git show -s --format='%an' "$SHA")
+          elif [ -n "${PR_MERGE_SHA:-}" ] && git cat-file -e "$PR_MERGE_SHA^{commit}" 2>/dev/null; then
+            EMAIL=$(git show -s --format='%ae' "$PR_MERGE_SHA")
+            NAME=$(git show -s --format='%an' "$PR_MERGE_SHA")
+          else
+            EMAIL=""
+            NAME="$PR_USER_LOGIN"
+          fi
+
           echo "email=$EMAIL" >> "$GITHUB_OUTPUT"
           echo "name=$NAME" >> "$GITHUB_OUTPUT"
 
