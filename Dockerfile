@@ -21,6 +21,8 @@ ENV PYTHONUNBUFFERED=1
 
 COPY --from=builder --chown=0:0 --chmod=0555 /app/venv /app/venv
 COPY --chown=0:0 --chmod=0555 app/ ./app/
+COPY --chown=0:0 --chmod=0444 alembic.ini ./alembic.ini
+COPY --chown=0:0 --chmod=0555 alembic/ ./alembic/
 
 USER 10001
 
